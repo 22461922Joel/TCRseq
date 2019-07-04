@@ -32,154 +32,134 @@ library(DescTools)
 library(divo)
 library(readxl)
 library(tidyverse)
+library(colorRamps)
 
 #####
 # data cleaning
 #####
 
-#setwd("/Users/joelkidman/Documents/PhD_documents/RNAseq/1239Shp15b_Joost/PID\ summary")
+# clean_data expects data shaped as it comes from IIID as of June 2019, ie. <experiment>/PID summary folder structure.
+# it returns 2 .csv files with clean data and rejected CDR3s for reference
 
-setwd("D://RNAseq//1239Shp15b_Joost_final//PID summary") # set the path the directory that contains your TCRseq PID files
-
-names_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
-  str_remove(" miXCR clones with PID read cutoff 1.tsv")
+clean_data <- function(directory) {
   
-raw_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
-  map(read.delim, stringsAsFactors = F)
+  setwd(directory)
+  
+  names_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
+    str_remove(" miXCR clones with PID read cutoff 1.tsv")
+  
+  raw_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
+    map(read.delim, stringsAsFactors = F)
+  
+  names(raw_exp) <- names_exp
+  
+  exp <- bind_rows(raw_exp, .id = "exp") %>%
+    select(-ends_with("R1"), 
+           -ends_with("R2"), 
+           -ends_with("R4"), 
+           -refPoints, 
+           -ends_with("FR3"),
+           -ends_with("ments"),
+           -minQualCDR3,
+           -clonalSequenceQuality,
+           -allCHitsWithScore,
+           -clonalSequence, 
+           -Well,
+           -cloneId,
+           -Subject.id) %>%
+    mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
+    separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = ",") %>%
+    separate(v_gene, c("v_gene", NA), sep = "\\(") %>%
+    tidyr::extract(v_gene, into = c("removeV", "v_gene"), regex = "([:lower:])([:alnum:]+)") %>%
+    separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = ",") %>%
+    separate(j_gene, c("j_gene", NA), sep = "\\(") %>%
+    tidyr::extract(j_gene, into = c("removeJ", "j_gene"), regex = "([:lower:])([:alnum:]+)") %>%
+    separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = ",") %>%
+    separate(d_gene, c("d_gene", NA), sep = "\\(") %>%
+    tidyr::extract(d_gene, into = c("removeD", "d_gene"), regex = "([:lower:])([:alnum:]+)") %>%
+    select(-starts_with("remove"),
+           -starts_with("potential"))
+  
+  reject_vector <- str_detect(exp$aaSeqCDR3, "_") | 
+    str_detect(exp$aaSeqCDR3, "\\*") | 
+    str_length(exp$aaSeqCDR3) > 20 | 
+    str_length(exp$aaSeqCDR3) < 8 |
+    exp$cloneCount < 3 |
+    exp$PID.count < 3 #|
+  #  nSeqCDR3 != "TGTGCCAGCGGTGAGACAGGGACCAACGAAAGATTATTTTTC"
+  
+  exp_rejects <- exp %>%
+    filter(reject_vector)
+  
+  setwd(paste(getwd(), "/../.."))
+  
+  write.csv(exp_rejects, "rejected_CDR3s.csv")
+  
+  remove(exp_rejects)
+  
+  exp_clean <- exp %>%
+    filter(!reject_vector)
+  
+  write.csv(exp_clean, "cleaned_CDR3s.csv")
+}
 
-#setwd("/Users/joelkidman/Documents/PhD_documents/RNAseq/")
-
-setwd("D://RNAseq//") # change directory to where you want the pictures to go
-
-names(raw_exp) <- names_exp
-
-exp <- bind_rows(raw_exp, .id = "exp") %>%
-  select(-ends_with("R1"), 
-         -ends_with("R2"), 
-         -ends_with("R4"), 
-         -refPoints, 
-         -ends_with("FR3"),
-         -ends_with("ments"),
-         -minQualCDR3,
-         -clonalSequenceQuality,
-         -allCHitsWithScore,
-         -clonalSequence, 
-         -Well,
-         -cloneId,
-         -Subject.id) %>%
-  mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
-  separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = ",") %>%
-  separate(v_gene, c("v_gene", NA), sep = "\\(") %>%
-  tidyr::extract(v_gene, into = c("removeV", "v_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-  separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = ",") %>%
-  separate(j_gene, c("j_gene", NA), sep = "\\(") %>%
-  tidyr::extract(j_gene, into = c("removeJ", "j_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-  separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = ",") %>%
-  separate(d_gene, c("d_gene", NA), sep = "\\(") %>%
-  tidyr::extract(d_gene, into = c("removeD", "d_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-  select(-starts_with("remove"),
-         -starts_with("potential"))
-
-remove(raw_exp)
-
-exp$exp <- str_remove(exp$exp, "mTCR ") %>%
-  str_replace(" ", "-") %>%
-  str_replace_all("627-RS", "627-RS-4") %>%
-  str_replace_all("630-NR", "630-NR-6") %>%
-  str_replace_all("633-RS", "633-RS-7") %>%
-  str_replace_all("640-RS", "640-RS-8")
-
-exp <- exp %>%
-  separate(exp, into = c("tpmouse", "response", "primer"), sep = "-") %>%
-  separate(tpmouse, into = c("timepoint", "mouse"), sep = 1, remove = F)
-
-#remove stop and out of frame sequences, rejects to separate file
-
-reject_vector <- str_detect(exp$aaSeqCDR3, "_") | 
-  str_detect(exp$aaSeqCDR3, "\\*") | 
-  str_length(exp$aaSeqCDR3) > 20 | 
-  str_length(exp$aaSeqCDR3) < 8 |
-  exp$cloneCount < 3 |
-  exp$PID.count < 3 #|
-#  nSeqCDR3 != "TGTGCCAGCGGTGAGACAGGGACCAACGAAAGATTATTTTTC"
-
-exp_rejects <- exp %>%
-  filter(reject_vector)
-
-remove(exp_rejects)
-
-exp_clean <- exp %>%
-  filter(!reject_vector)
-
-remove(exp, reject_vector)
 
 #####
 # richness eveness
 #####
 
-entropy <- function(x) {
-  H <- vector()
-  for (i in 1:length(x)) {
-    H[i] <- -x[i]*log(x[i])
+# summary_TCRseq returns a csv file with summary information from the clean_data function
+
+summary_TCRseq <- function(data) {
+  
+  entropy <- function(x) {
+    H <- vector()
+    for (i in 1:length(x)) {
+      H[i] <- -x[i]*log(x[i])
+    }
+    H_norm <- sum(H)/log(length(x))
+    H_norm
   }
-  H_norm <- sum(H)/log(length(x))
-  H_norm
+  
+  simpsons_index <- function(x) {
+    lambda <- vector()
+    for (i in 1:length(x)) {
+      lambda[i] <- x[i]**2
+    }
+    lambda <- sum(lambda)
+    lambda
+  }
+  
+  
+  exp_richness_summary <- data %>%
+    group_by(exp, aaSeqCDR3) %>%
+    summarise(PID.count = sum(PID.count), PID.fraction = sum(PID.fraction)) %>%
+    group_by(exp) %>%
+    summarise(richness = n(), 
+              evenness = sum(PID.count), 
+              average_count = evenness/richness,
+              diversity = entropy(PID.fraction),
+              simpsons = simpsons_index(PID.fraction))
+  
+  write.csv(exp_richness_summary, "summary_stats.csv")
 }
 
-simpsons_index <- function(x) {
-  lambda <- vector()
-  for (i in 1:length(x)) {
-    lambda[i] <- x[i]**2
-  }
-  lambda <- sum(lambda)
-  lambda
-}
 
-exp_richness_summary <- exp_clean %>%
-  group_by(timepoint, mouse, aaSeqCDR3, tpmouse, response) %>%
-  summarise(PID.count = sum(PID.count), PID.fraction = sum(PID.fraction)) %>%
-  group_by(timepoint, mouse, tpmouse, response) %>%
-  summarise(richness = n(), 
-            evenness = sum(PID.count), 
-            average_count = evenness/richness,
-            diversity = entropy(PID.fraction),
-            simpsons = simpsons_index(PID.fraction))
-
-summary(exp_richness_summary)
-
-tp_breakdown <- table(exp_richness_summary$timepoint, exp_richness_summary$response) %>%
-  as.data.frame()
-
-names(tp_breakdown) <- c("timepoint", "response", "count")
-
-write.csv(exp_richness_summary, "rich.even.csv")
-
-ggplot(exp_richness_summary, aes(timepoint, diversity, fill = response)) +
-  geom_boxplot(outlier.shape = NA) +
-  stat_compare_means(aes(group = response), label = "p.signif") +
-  geom_point(position = position_jitterdodge(jitter.width = 0.1))
-
-ggplot(exp_richness_summary, aes(timepoint, simpsons, fill = response)) +
-  geom_boxplot()
-
-ggplot(exp_richness_summary, aes(evenness, richness, colour = response)) +
-  geom_point() +
-  scale_y_log10() +
-  scale_x_log10() +
-  facet_grid(. ~ timepoint) +
-  labs(y = "unique clones", x = "total clones")
 #####
 # only single residues
 #####
 
-exp_clean_only_aa <- exp_clean %>%
-  group_by(aaSeqCDR3, tpmouse, response, timepoint, mouse) %>%
-  summarise(PID.count_sum = sum(PID.count),
-            PID.fraction_sum = sum(PID.fraction),
-            n_nuc = n_distinct(nSeqCDR3)) %>%
-  arrange(tpmouse)
+# data_aa reduces the nucleotide sequences that cause more than aa sequence down to one aa sequence for each repertoire
+# it also returns a new column that tells how many nucleotide sequences caused that residue sequence
 
-remove(exp_clean)
+data_aa <- function(data) {
+  data %>%
+    group_by(aaSeqCDR3, exp) %>%
+    summarise(PID.count_sum = sum(PID.count),
+              PID.fraction_sum = sum(PID.fraction),
+              n_nuc = n_distinct(nSeqCDR3))
+}
+
 
 #####
 # phylgenic tree
@@ -222,7 +202,7 @@ ggdendrogram(hamming_clust) +
 # generate heat map and dendrograms with imputed values
 #####
 
-heatmap_dendrogram <- function(df, tp) { 
+hd_timepoint <- function(df, tp) { 
   x_df <- df %>%
     filter(timepoint == tp) %>%
     group_by(aaSeqCDR3) %>%
