@@ -80,6 +80,11 @@ clean_data <- function(directory) {
     select(-starts_with("remove"),
            -starts_with("potential"))
   
+  
+  exp$exp <- str_remove(exp$exp, "mTCR ") %>%
+    str_replace("_8", "_CD8") %>%
+    str_replace("_4", "_CD4")
+  
   reject_vector <- str_detect(exp$aaSeqCDR3, "_") | 
     str_detect(exp$aaSeqCDR3, "\\*") | 
     str_length(exp$aaSeqCDR3) > 20 | 
@@ -100,9 +105,22 @@ clean_data <- function(directory) {
   exp_clean <- exp %>%
     filter(!reject_vector)
   
-  write.csv(exp_clean, "cleaned_CDR3s.csv")
+  write.csv(exp_clean, "cleaned_CDR3s.csv", row.names = F)
 }
 
+#####
+# factor extractor
+#####
+
+# extracts exp column into the factors defined by the sort name or the name defined by IIID
+
+factor_extractor <- function(data) {
+  data %>% separate(exp, into = c("JKexp", 
+                                  "mouse", 
+                                  "tissue", 
+                                  "flank", 
+                                  "pop"), sep = "_", remove = F)
+}
 
 #####
 # richness eveness
@@ -141,7 +159,7 @@ summary_TCRseq <- function(data) {
               diversity = entropy(PID.fraction),
               simpsons = simpsons_index(PID.fraction))
   
-  write.csv(exp_richness_summary, "summary_stats.csv")
+  write.csv(exp_richness_summary, "summary_stats.csv", row.names = F)
 }
 
 
@@ -157,7 +175,8 @@ data_aa <- function(data) {
     group_by(aaSeqCDR3, exp) %>%
     summarise(PID.count_sum = sum(PID.count),
               PID.fraction_sum = sum(PID.fraction),
-              n_nuc = n_distinct(nSeqCDR3))
+              n_nuc = n_distinct(nSeqCDR3)) %>%
+    as.data.frame()
 }
 
 
@@ -436,13 +455,7 @@ tsne_plot %>%
 # CDR3 networks
 #####
 
-exp_clean_only_aa <- exp_clean %>%
-  select(-nSeqCDR3) %>%
-  group_by(aaSeqCDR3, tpmouse, response, timepoint, mouse) %>%
-  summarise(PID.count_sum = sum(PID.count),
-            PID.fraction_sum = sum(PID.fraction)) %>%
-  arrange(tpmouse) %>%
-  ungroup() %>%
+aa_list <- aa_data %>%
   group_by(aaSeqCDR3) %>%
   mutate(n_mice = n()) %>%
   group_by(tpmouse) %>%
@@ -451,14 +464,14 @@ exp_clean_only_aa <- exp_clean %>%
 
 big_rep <- vector()
 
-for (i in 1:length(exp_clean_only_aa)) {
-  big_rep[i] <- if_else(length(exp_clean_only_aa[[i]]$aaSeqCDR3) >= 1000, 
+for (i in 1:length(aa_list)) {
+  big_rep[i] <- if_else(length(aa_list[[i]]$aaSeqCDR3) >= 1000, 
                                     T,
                                     F)
 }
 
-for (i in 1:length(exp_clean_only_aa[big_rep])) {
-  exp_clean_only_aa[big_rep][[i]] <- exp_clean_only_aa[big_rep][[i]][1:1000,]
+for (i in 1:length(aa_list[big_rep])) {
+  aa_list[big_rep][[i]] <- aa_list[big_rep][[i]][1:1000,]
 }
 
 mouse_CDR3_network <- function(df) {
@@ -547,28 +560,33 @@ mouse_CDR3_network <- function(df) {
   grid.arrange(ggplot() + annotation_list + labs(title = paste(c("mouse ", unique(setdiff_temp$tpmouse), " ", unique(setdiff_temp$response)), collapse = "")))
 }
 
-
-mouse_CDR3_network(exp_clean_only_aa[[30]])
-
-setwd("D://RNAseq//mouse_networks")
-
-for (i in 1:length(exp_clean_only_aa)) {
+mouse_CDR3_graph <- function(df) {
+  setdiff_temp <- df %>%
+    arrange(n_mice) %>%
+    mutate(n_mice = as.character(n_mice))
   
-  g_titles <- exp_clean_only_aa[[i]] %>%
-    select(tpmouse, response, timepoint) %>%
-    distinct()
+  setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
+    as_tibble()
   
-  png(filename = paste("Mouse ", g_titles$tpmouse, ", ",
-                       "Response ", g_titles$response, ", ",
-                       "timepoint ", g_titles$timepoint, ".png", sep = ""),
-      width = 1527, height = 883)
+  colnames(setdiff) <- setdiff_temp$aaSeqCDR3
   
-  mouse_CDR3_network(exp_clean_only_aa[[i]])
+  setdiff$aa.x <- setdiff_temp$aaSeqCDR3
   
-  dev.off()
+  graph <- setdiff %>%
+    gather("aa.y", "lv", -aa.x) %>%
+    filter(lv == 1) %>% # set lv distance
+    unite("temp1", aa.x, aa.y, remove = F) %>%
+    mutate(temp2 = pmin(aa.x, aa.y),
+           temp3 = pmax(aa.x, aa.y)) %>%
+    unite("temp2", temp2, temp3, sep = "_") %>%
+    filter(temp1 != temp2) %>%
+    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
+    select(-starts_with("temp"), -n_mice, -lv) %>%
+    graph_from_data_frame(directed = F, vertices = setdiff_temp)
 }
 
-ggsave("mouse_420_RS.png")
+
+
 
 #####
 
@@ -898,12 +916,12 @@ grid.arrange(ggplot() + annotation_list + labs(title = paste(c("timepoint ", "0"
 #####
 
 graph_func <- function(df, tp, rs) {
-  setdiff_temp <- exp_clean_only_aa %>%
+  setdiff_temp <- df %>%
     filter(timepoint == tp, response == rs) %>%
     group_by(aaSeqCDR3) %>%
     summarise(n_compartments = n_distinct(tpmouse))
   
-  setdiff_specific <- exp_clean_only_aa %>%
+  setdiff_specific <- df %>%
     filter(timepoint == tp, response == rs) %>%
     group_by(tpmouse) %>%
     group_split()
@@ -1017,37 +1035,32 @@ summary_func <- function(df, tp, rs) {
   
 }
 
-tp0NR <- graph_func(exp_clean_only_aa, "0", "NR")
-
-tp0NR_stats <- summary_func(exp_clean_only_aa, "0", "NR")
-
-V(tp0NR)
-
 tp_response_graphs <- list()
 
 tp_response_stats <- list()
 
-tp_vector <- rep(unique(exp_clean_only_aa$timepoint), each = length(unique(exp_clean_only_aa$response)))
+aa_modified <- aa_data %>%
+  filter(PID.count_sum > 3)
 
-timepoints <- unique(exp_clean_only_aa$timepoint)
+tp_vector <- rep(unique(aa_modified$timepoint), each = length(unique(aa_modified$response)))
 
-responses <- unique(exp_clean_only_aa$response)
+timepoints <- unique(aa_modified$timepoint)
 
-rs_vector <- rep(unique(exp_clean_only_aa$response), times = length(unique(exp_clean_only_aa$timepoint)))
+responses <- unique(aa_modified$response)
 
-graphs_list <- list(df = as.list(rep(list(exp_clean_only_aa), each = length(rs_vector))),
+rs_vector <- rep(unique(aa_modified$response), times = length(unique(aa_modified$timepoint)))
+
+graphs_list <- list(df = as.list(rep(list(aa_modified), each = length(aa_modified))),
      tp = as.list(tp_vector),
      rs = as.list(rs_vector))
 
-tp_response_graphs <- pmap(exp_clean_only_aa, summary_func)
+tp_response_graphs <- list(list(), list(), list(), list(), list(), list(), list(), list())
 
 m <- 1
 
 for (rs in 1:length(responses)) {
   for (tp in 1:length(timepoints)) {
-    tp_response_graphs[[m]] <- graph_func(exp_clean_only_aa, timepoints[tp], responses[rs])
-    
-    tp_response_stats[[m]] <- summary_func(exp_clean_only_aa, timepoints[tp], responses[rs])
+    tp_response_graphs[[m]] <- graph_func(aa_modified, timepoints[tp], responses[rs])
     
     m <- m + 1
   }
@@ -1170,9 +1183,9 @@ graph_stats <- vert %>%
   filter(!is.na(tpmouse))
 #####
 
-mice <- tp0NR_stats$tpmouse
+mice <- 1
 
-tpmouse <- tp0NR_stats$label
+tpmouse <- 1
 
 graph_stats_degree <- vector()
 
@@ -1181,11 +1194,19 @@ m <- 1
 for (g in 1:length(tp_response_stats)) {
   tpmouse <- tp_response_stats[[g]]$label
   for (h in 1:length(tp_response_stats[[g]]$tpmouse)) {
-    graph_stats_degree[m] <- igraph::V(tp_response_graphs[[g]])[!is.na(vertex_attr(tp_response_graphs[[g]], name = tpmouse[h]))][degree(tp_response_graphs[[g]], V(tp_response_graphs[[g]])[!is.na(vertex_attr(tp_response_graphs[[g]], name = tpmouse[h]))]) > 1] %>%
+    graph_stats_degree[m] <- igraph::V(tp_response_graphs[[g]])[
+      !is.na(vertex_attr(tp_response_graphs[[g]], 
+                         name = tpmouse[h]))][degree(tp_response_graphs[[g]], 
+                                                     V(tp_response_graphs[[g]])[
+        !is.na(vertex_attr(tp_response_graphs[[g]],  name = tpmouse[h]))]) > 1] %>%
       length()
     m <- m + 1
   }
 }
+
+igraph::V(tp_response_graphs[[8]])
+
+graph_stats_degree
 
 tpmouse_response <- exp_clean_only_aa %>%
   ungroup() %>%
@@ -1339,10 +1360,109 @@ tissue_network(exp_group, "CD4")
 # overlapping clones
 #####
 
-exp_group <- exp_clean_only_aa %>%
-  filter(timepoint == "0") %>%
-  group_by(tpmouse) %>%
-  group_split()
+grouped_overlaps <- function(df) { # need to write this to work for groups to compare within whole
+  
+}
+
+all_intersects <- function(df) {
+  
+  dat <- df %>%
+    factor_extractor()
+  
+  pop_vector <- dat$pop %>% unique()
+  
+  map_list <- list()
+  
+  m <- 1
+  
+  for (j in 1:length(pop_vector)) {
+    exp_group <- df %>%
+      factor_extractor() %>%
+      filter(pop == pop_vector[j]) %>%
+      group_by(exp) %>%
+      group_split()
+    for (k in 2:length(exp_group)) {
+      exp_calc <- CombSet(exp_group, m = k)
+      for (l in 1:(length(exp_calc)/k)) {
+        map_list[[m]] <- exp_calc[l, ] %>% reduce(inner_join, by = "aaSeqCDR3")
+        m <- m + 1
+      }
+    }
+  }
+  
+  
+  exp_intersect <- map_list %>%
+    bind_rows() %>%
+    unite("mice", starts_with("exp"), sep = "-", remove = F)
+  
+  exp_int <- exp_intersect %>%
+    mutate(clone_sum = rowSums(select(., starts_with("PID.fraction_sum")), na.rm = T)) %>%
+    group_by(mice, pop.x) %>%
+    summarise(n_clones = n(),
+              clonal_proportion_norm = sum(clone_sum)/n_clones,
+              clonal_proportion = sum(clone_sum)) %>%
+    mutate(n_mice = str_count(mice, "_[\\d].[\\d]_"))
+  
+}
+
+all_full_joins <- function(df, population) {
+  dat <- df %>%
+    filter(pop == population)
+  
+  pop_vector <- dat$pop %>% unique()
+  
+  map_list <- list()
+  
+  m <- 1
+  
+  for (j in 1:length(pop_vector)) {
+    exp_group <- dat %>%
+      filter(pop == pop_vector[j]) %>%
+      group_by(exp) %>%
+      group_split()
+    for (k in 2) {
+      exp_calc <- CombSet(exp_group, m = k)
+      for (l in 1:(length(exp_calc)/k)) {
+        map_list[[m]] <- exp_calc[l,] %>% reduce(full_join, by = "aaSeqCDR3")
+        m <- m + 1
+      }
+    }
+  }
+  
+  
+  exp_intersect <- map_list %>%
+    bind_rows() %>%
+    fill(ends_with(".x"), .direction = "down") %>%
+    fill(ends_with(".y"), .direction = "up") %>%
+    unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
+    group_by(mice) %>%
+    separate(exp.x, into = c(NA, "mouse.x", NA, "flank.x", NA), sep = "_", remove = F) %>%
+    unite("mouse_flank.x", mouse.x, flank.x, sep = " ") %>%
+    separate(exp.y, into = c(NA, "mouse.y", NA, "flank.y", NA), sep = "_", remove = F) %>%
+    unite("mouse_flank.y", mouse.y, flank.y, sep = " ")
+  
+  gg <- ggplot(exp_intersect, aes(PID.fraction_sum.y, PID.fraction_sum.x)) +
+    geom_point() +
+    scale_x_log10() +
+    scale_y_log10() +
+    geom_abline(intercept = 0, slope = 1) +
+    geom_smooth(method = "lm") +
+    facet_grid(mouse_flank.y ~ mouse_flank.x)
+  
+  gg_grob <- ggplotGrob(gg)
+  
+  null_panel_x <- list()
+  
+  m <- 1
+  
+  for (i in 2:length(unique(exp_intersect$exp.y))) {
+    null_panel_x[[m]] <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
+    
+    m <- m + 1
+  }
+  
+  nulls <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
+}
 
 # defined vectors and lists
 
@@ -1357,8 +1477,6 @@ exp_calc <- CombSet(exp_group, m = combinations)
 map_list <- list()
 
 m <- 1
-
-sum(CombN(1:8, m = 2:8)) + sum(CombN(1:4, m = 2:4)) + sum(CombN(1:4, m = 2:4)) + sum(CombN(1:8, m = 2:8)) + sum(CombN(1:7, m = 2:7)) + sum(CombN(1:8, m = 2:8)) + sum(CombN(1:8, m = 2:8)) + sum(CombN(1:7, m = 2:7)) + sum(CombN(1:5, m = 2:5))
 
 # loops
 
@@ -1427,118 +1545,86 @@ ggplot(exp_int, aes(x = as.factor(n_mice), y = clonal_proportion, fill = respons
 #####
 # Morisita network
 #####
-morisita_network <- function(df, pop) {
+morisita_network <- function(df, population) {
+  dat <- df %>%
+    filter(pop == population)
   
-  exp_group_only_aa <- exp_clean_only_aa %>%
-    arrange(desc(population)) %>%
-    unite("flank_mouse_pop", flank_mouse, population, remove = F) %>%
-    group_by(flank_mouse_pop) %>%
+  pop_vector <- dat$pop %>% unique()
+  
+  map_list <- list()
+  
+  m <- 1
+  
+  for (j in 1:length(pop_vector)) {
+    exp_group <- dat %>%
+      filter(pop == pop_vector[j]) %>%
+      group_by(exp) %>%
+      group_split()
+    for (k in 2) {
+      exp_calc <- CombSet(exp_group, m = k)
+      for (l in 1:(length(exp_calc)/k)) {
+        map_list[[m]] <- exp_calc[l,] %>% reduce(full_join, by = "aaSeqCDR3")
+        m <- m + 1
+      }
+    }
+  }
+  
+  
+  exp_intersect <- map_list %>%
+    bind_rows() %>%
+    fill(ends_with(".x"), .direction = "down") %>%
+    fill(ends_with(".y"), .direction = "up") %>%
+    unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
+    select(starts_with("PID.count"), mice, aaSeqCDR3, starts_with("exp")) %>%
+    group_by(mice) %>%
     group_split()
   
-  exp_intersect <- list()
-  
-  for (i in 1:length(exp_group_only_aa)) {
-    exp_intersect[[i]] <- lapply(exp_group_only_aa, full_join, y = exp_group_only_aa[[i]], by = "aaSeqCDR3")
-  }
-  
-  names(exp_intersect) <- unique(exp_clean$flank_mouse_pop)
+  exp_intersect <- exp_intersect %>%
+    map(ungroup) %>%
+    map(column_to_rownames, var = "aaSeqCDR3") %>%
+    map(mutate, exp.x = as.character(exp.x)) %>%
+    map(mutate, exp.y = as.character(exp.y))
   
   for (i in 1:length(exp_intersect)) {
-    names(exp_intersect[[i]]) <- unique(exp_clean$flank_mouse_pop)
+    names(exp_intersect[[i]])[1] <- unique(exp_intersect[[i]][,4])
+    names(exp_intersect[[i]])[2] <- unique(exp_intersect[[i]][,5])
   }
   
-  exp_intersect_unique <- exp_intersect %>%
-    map(bind_rows) %>%
+  exp_intersect <- exp_intersect %>%
+    map(select, -mice, -starts_with("exp")) %>%
+    map(as.matrix) %>%
+    map(mh, PlugIn = T) %>%
+    map(as.data.frame)
+  
+  for (i in 1:length(exp_intersect)) {
+    names(exp_intersect[[i]]) <- str_remove(names(exp_intersect[[i]]), "PlugIn.")
+    exp_intersect[[i]][,2] <- rep(paste(names(exp_intersect[[i]]), collapse = "-"), times = nrow(exp_intersect[[i]]))
+    names(exp_intersect[[i]]) <- c("index", "intersect")
+  }
+  
+  exp_edgelist <- exp_intersect %>%
     bind_rows() %>%
-    filter(population.x == population.y, population.x == pop) %>%
-    select(flank_mouse_pop.x, flank_mouse_pop.y) %>%
-    filter(flank_mouse_pop.x != flank_mouse_pop.y) %>%
-    mutate(temp_min = pmin(flank_mouse_pop.x, flank_mouse_pop.y),
-           temp_max = pmax(flank_mouse_pop.x, flank_mouse_pop.y)) %>%
-    unite("Intersect", temp_min, temp_max) %>%
-    select(Intersect) %>%
-    unique()
-  
-  exp_intersect_clean <- exp_intersect %>%
-    map(bind_rows) %>%
-    bind_rows()
-  
-  exp_intersect_clean$PID.count_sum.y[is.na(exp_intersect_clean$PID.count_sum.y)] <- 0
-  
-  exp_intersect_clean$PID.fraction_sum.y[is.na(exp_intersect_clean$PID.fraction_sum.y)] <- 0
-  
-  exp_intersect_clean$PID.count_sum.x[is.na(exp_intersect_clean$PID.count_sum.x)] <- 0
-  
-  exp_intersect_clean$PID.fraction_sum.x[is.na(exp_intersect_clean$PID.fraction_sum.x)] <- 0
-  
-  exp_intersect_clean <- exp_intersect_clean %>%
-    fill(flank_mouse_pop.x:population.x, flank_mouse_pop.y, population.y) %>%
-    unite("test", flank_mouse_pop.x, flank_mouse_pop.y, sep = "_", remove = F) %>%
-    filter(flank_mouse.x != flank_mouse.y, population.x == population.y, population.x == pop) %>%
-    arrange(desc(PID.count_sum.x)) %>%
-    mutate(temp_min = pmin(flank_mouse_pop.x, flank_mouse_pop.y),
-           temp_max = pmax(flank_mouse_pop.x, flank_mouse_pop.y)) %>%
-    unite("Intersect", temp_min, temp_max) %>%
-    filter(Intersect == test) %>%
-    select(PID.count_sum.x, PID.count_sum.y, aaSeqCDR3, Intersect) %>%
-    group_split(Intersect)
-  
-  names_vector <- vector()
-  
-  for (j in 1:length(exp_intersect_clean)) {
-    names_vector[j] <- unique(exp_intersect_clean[[j]]$Intersect)
-    names_vector
-  }
-  
-  names(exp_intersect_clean) <- names_vector
-  
-  for (i in 1:length(exp_intersect_clean)) {
-    
-    exp_intersect_clean[[i]] <- exp_intersect_clean[[i]] %>%
-      column_to_rownames(var = "aaSeqCDR3") %>%
-      select(-Intersect) %>%
-      as.matrix() %>%
-      mh(PlugIn = T) %>%
-      bind_rows() %>%
-      as.data.frame()
-  }
-  
-  exp_intersect_clean <- bind_cols(exp_intersect_clean)
-  
-  colnames(exp_intersect_clean) <- names_vector
-  
-  exp_edgelist <- exp_intersect_clean[2,] %>%
-    t() %>%
     as.data.frame() %>%
-    rownames_to_column() %>%
-    separate(rowname, into = c("from", "to"), sep = 10) %>%
-    mutate(from = str_trunc(from, 9, side = "right", ellipsis = ""),
-           morisita = `2` * 10) %>%
-    select(-`2`) %>%
-    filter(morisita > 7) # remove irrelevant edges
+    filter(index != 1) %>%
+    separate(intersect, into = c("from", "to"), sep = "-") %>%
+    mutate(index = index * 10) %>%
+    select(from, to, index) %>%
+    filter(index > 5) # remove irrelevant edges
   
-  exp_vertexlist <- exp_intersect_unique %>%
-    separate(Intersect, into = c("from", "to"), sep = 10) %>%
-    mutate(from = str_trunc(from, width = 9, side = "right", ellipsis = "")) %>%
-    full_join(., .[,2], by = c("from" = "to")) %>%
-    select("vertex" = "from", -to) %>%
-    distinct() %>%
-    separate(vertex, into = c("flank", "mouse", "pop"), remove = F, sep = "_")
+  exp_vertexlist <- data.frame(exp = c(exp_edgelist$from, exp_edgelist$to), stringsAsFactors = F) %>%
+    distinct() %>% 
+    factor_extractor()
   
   exp_network <- graph_from_data_frame(exp_edgelist, directed = F, vertices = exp_vertexlist)
   
-  ggnet2(exp_network, 
-         edge.size = E(exp_network)$morisita,
+  ggnet2(exp_network, edge.size = E(exp_network)$index,
          color = V(exp_network)$mouse,
          shape = V(exp_network)$flank,
          color.palette = "Dark2",
-         size = 20) +
-    labs(title = pop)
+         size = 10) +
+    labs(title = population)
+  
 }
-
-morisita_network(exp_clean_only_aa, "CD8")
-
-morisita_network(exp_clean_only_aa, "CD4")
 #####
 # intersection plot
 #####
@@ -1879,38 +1965,43 @@ ggnet2(graph, node.size = V(graph)$counts,
 # overlapping PIDs and clones
 #####
 
-neg_PIDs <- read.csv("D://mice_experiments//neg_control//output//neg_PIDs.csv") %>%
-  select(-X)
+#PID_control takes in the directory containing the PIDs from IIID, usually the PID summary folder
+# PID_control returns a summary a data frame of samples with how many PIDs and CDR3s each one shares with the negative control
 
-setwd("D://RNAseq//1239Shp15b_Joost_final//PID summary")
-
-exp_PIDs <- map(dir()[str_detect(dir(), " miXCR clones read names with PIDs.csv")], read.csv, stringsAsFactors = F)
-
-exp_PIDs <- exp_PIDs %>%
-  map(select, -`Well`, -`Clone.Id`, -`read.name`) %>%
-  map(distinct)
-
-exp_PIDs <- exp_PIDs %>%
-  bind_rows()
-
-exp_PIDs <- exp_PIDs %>%
-  filter(!str_detect(CDR3, "_") | !str_detect(CDR3, "\\*") | !str_length(CDR3) > 20 | !str_length(CDR3) < 8)
-
-exp_PIDs <- exp_PIDs %>%
-  group_by(Subject.Id, CDR3) %>%
-  mutate(PID.count = n_distinct(PID)) %>%
-  filter(PID.count > 3)
-
-exp_PIDs <- exp_PIDs %>%
-  ungroup() %>%
-  left_join(neg_PIDs, by = c("CDR3", "PID"))
-
-PID_overlap <- exp_PIDs %>%
-  filter(!is.na(exp)) %>%
-  distinct()
-
-PID_overlap_summary <- PID_overlap %>%
-  group_by(Subject.Id, CDR3) %>%
-  summarise(matching_PIDs = n_distinct(PID))
-
+PID_control <- function(directory) {
+  
+  neg_PIDs <- read.csv("D://data//experiments//neg_control//output//neg_PIDs.csv") %>%
+    select(-X)
+  
+  setwd(directory)
+  
+  exp_PIDs <- map(dir()[str_detect(dir(), " miXCR clones read names with PIDs.csv")], read.csv, stringsAsFactors = F)
+  
+  exp_PIDs <- exp_PIDs %>%
+    map(select, -`Well`, -`Clone.Id`, -`read.name`) %>%
+    map(distinct)
+  
+  exp_PIDs <- exp_PIDs %>%
+    bind_rows()
+  
+  exp_PIDs <- exp_PIDs %>%
+    filter(!str_detect(CDR3, "_") | !str_detect(CDR3, "\\*") | !str_length(CDR3) > 20 | !str_length(CDR3) < 8)
+  
+  exp_PIDs <- exp_PIDs %>%
+    group_by(Subject.Id, CDR3) %>%
+    mutate(PID.count = n_distinct(PID)) %>%
+    filter(PID.count > 3)
+  
+  exp_PIDs <- exp_PIDs %>%
+    ungroup() %>%
+    left_join(neg_PIDs, by = c("CDR3", "PID"))
+  
+  PID_overlap <- exp_PIDs %>%
+    filter(!is.na(exp)) %>%
+    distinct()
+  
+  PID_overlap_summary <- PID_overlap %>%
+    group_by(Subject.Id, CDR3) %>%
+    summarise(matching_PIDs = n_distinct(PID))
+}
 #####

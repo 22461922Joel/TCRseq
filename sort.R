@@ -4,53 +4,50 @@ library(tabulizer)
 library(plotly)
 library(reshape2)
 
-setwd("D://mice_Experiments//4_1_0//4.1_sort_data")
+# sort_function takes the directory where all the sort PDF files for one experiment are stored
+# and returns a CSV file containing the relevant information from each sort
 
-sort_area <- list(c(260, 40, 288, 265), c(7, 13, 26, 402))
-sort_data <- dir() %>% map(extract_tables, area = sort_area, guess = F, pages = c(1,1))
-test <- do.call("rbind", sort_data[1:length(sort_data)])
-sort_data_1 <- do.call("rbind", test[1:(length(test)/2)])
-sort_data_2 <- do.call("rbind", test[(length(test)/2 + 1):length(test)])
-sort_data_1 <- cbind(sort_data_1, rep(sort_data_2[,2], each = 2))
-sort_data_1 <- cbind(sort_data_1, rep(sort_data_2[,1], each = 2))
-sort_data_final <- as.data.frame(sort_data_1, stringsAsFactors = F)
-remove(sort_data_1, sort_data_2, sort_data, test, sort_area)
-
-
-percent <- function(x) {x / 100}
-
-sort_colnames <- c("population", "target", "cells", "rate", "efficiency", "sort_time", "exp_mouse_tissueFlank", "date")
-
-names(sort_data_final) <- sort_colnames
-
-sort_data_final$date <- mdy(sort_data_final$date)
-
-sort_data_final[, 2:4] <- map(sort_data_final[, 2:4], str_remove, pattern = ",")
-
-sort_data_final[, 2:4] <- map(sort_data_final[, 2:4], as.numeric)
-
-sort_data_final$sort_time <- sort_data_final$sort_time %>% 
-  ms() %>%
-  as.duration() %>%
-  as.numeric()
-
-sort_data_final$efficiency <- sort_data_final$efficiency %>% str_remove("%") %>% as.numeric() %>% percent()
-
-sort_data_final$exp_mouse_tissueFlank <- str_replace_all(sort_data_final$exp_mouse_tissueFlank, "Â", "_")
-
-sort_data_final <- sort_data_final %>% 
-  separate(exp_mouse_tissueFlank, c("exp", "mouse", "tissue"), "_", remove = F) %>% 
-  separate(tissue, c("tissue", "flank"), 2) %>%
-  as_tibble()
-
-sort_data_final$mouse <- str_trunc(sort_data_final$mouse, width = 3, side = "left", ellipsis = "")
-
-sort_data_final$tissue <- str_trunc(sort_data_final$tissue, width = 1, side = "left", ellipsis = "")
-
-str_length(sort_data_final$tissue)
-
-sort_data_final <- sort_data_final %>%
-  filter(mouse != "1.1")
+sort_function <- function(directory) {
+  
+  setwd(directory)
+  
+  sort_area <- list(c(260, 40, 288, 265), c(7, 13, 26, 402))
+  sort_data <- dir() %>% map(extract_tables, area = sort_area, guess = F, pages = c(1,1))
+  test <- do.call("rbind", sort_data[1:length(sort_data)])
+  sort_data_1 <- do.call("rbind", test[1:(length(test)/2)])
+  sort_data_2 <- do.call("rbind", test[(length(test)/2 + 1):length(test)])
+  sort_data_1 <- cbind(sort_data_1, rep(sort_data_2[,2], each = 2))
+  sort_data_1 <- cbind(sort_data_1, rep(sort_data_2[,1], each = 2))
+  sort_data_final <- as.data.frame(sort_data_1, stringsAsFactors = F)
+  remove(sort_data_1, sort_data_2, sort_data, test, sort_area)
+  
+  
+  percent <- function(x) {x / 100}
+  
+  sort_colnames <- c("population", "target", "cells", "rate", "efficiency", "sort_time", "exp", "date")
+  
+  names(sort_data_final) <- sort_colnames
+  
+  sort_data_final$date <- mdy(sort_data_final$date)
+  
+  sort_data_final[, 2:4] <- map(sort_data_final[, 2:4], str_remove, pattern = ",")
+  
+  sort_data_final[, 2:4] <- map(sort_data_final[, 2:4], as.numeric)
+  
+  sort_data_final$sort_time <- sort_data_final$sort_time %>% 
+    ms() %>%
+    as.duration() %>%
+    as.numeric()
+  
+  sort_data_final$efficiency <- sort_data_final$efficiency %>% str_remove("%") %>% as.numeric() %>% percent()
+  
+  sort_data_final <- sort_data_final %>%
+    unite("storage", exp, population, remove = F)
+  setwd(paste(getwd(), "/.."))
+  
+  write.csv(sort_data_final, "sort_data.csv", row.names = F)
+  
+}
 
 #####
 # IIID lot specific
@@ -97,74 +94,6 @@ PCR_export$tube <- tube
 
 write.csv(PCR_export, "PCR_primers.csv")
 
-#####
-# storage locale
-#####
-
-setwd("D://mice_Experiments")
-
-storage_perm <- read.csv("storage_locale.csv", as.is = T) %>%
-  select(-X) %>%
-  mutate(mouse = as.character(mouse),
-         date = ymd(date))
-
-storage <- sort_tumours %>%
-  select(population, exp:date)
-
-storage$tissue[storage$tissue == "T"] <- "tum"
-
-last_locale <- max(storage_perm$PCR1_location)
-
-new_locale <- vector()
-
-new_locale[1] <- 1
-
-for (i in 1:(2 *length(storage$tissue))) {
-  new_locale[i] <- if_else(max(new_locale) < 96, 
-                           (last_locale + i), 
-                           as.integer(last_locale + i - 96))
-}
-
-RNA_box <- vector()
-
-last_box <- max(storage_perm$PCR1_box)
-
-for (i in 1:length(storage$tissue)) {
-  RNA_box[i] <- if_else(new_locale[i] == 1,
-                         as.integer(last_box + 1),
-                         last_box)
-  last_box <- if_else(new_locale[i] == 1,
-                      as.integer(last_box + 1),
-                      last_box)
-}
-
-PCR1_box <- vector()
-
-for (i in 1:length(storage$tissue)) {
-  PCR1_box[i] <- if_else(new_locale[i + length(storage$tissue)] == 1,
-                         as.integer(last_box + 1),
-                         last_box)
-  last_box <- if_else(new_locale[i + length(storage$tissue)] == 1,
-                      as.integer(last_box + 1),
-                      last_box)
-}
-
-storage$RNA_box <- RNA_box
-
-storage$RNA_location <- new_locale[1:length(storage$population)]
-
-storage$PCR1_box <- PCR1_box
-
-storage$PCR1_location <- new_locale[(1 + length(storage$population)):(2 * length(storage$population))]
-
-storage_perm <- storage_perm %>%
-  bind_rows(storage)
-
-write.csv(storage_perm, "storage_locale.csv")
-
-setwd("D://mice_Experiments//4_1_0")
-
-write.csv(storage, "Storage.csv")
 
 #####
 
