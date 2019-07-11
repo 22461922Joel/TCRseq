@@ -1,4 +1,3 @@
-library(ggpubr)
 library(data.table)
 # network
 library(RColorBrewer)
@@ -11,6 +10,7 @@ library(GGally)
 library(treemap)
 library(igraph)
 library(stringdist)
+library(intergraph)
 # phylogram
 library(ape)
 #tsne
@@ -27,11 +27,13 @@ library(grid)
 library(gtable)
 library(ggdendro)
 library(missMDA)
-# standard
+# intersects
 library(DescTools)
+# standard
 library(divo)
 library(readxl)
 library(tidyverse)
+library(ggpubr)
 library(colorRamps)
 
 #####
@@ -458,7 +460,7 @@ tsne_plot %>%
 aa_list <- aa_data %>%
   group_by(aaSeqCDR3) %>%
   mutate(n_mice = n()) %>%
-  group_by(tpmouse) %>%
+  group_by(exp) %>%
   arrange(desc(PID.fraction_sum)) %>%
   group_split()
 
@@ -476,7 +478,7 @@ for (i in 1:length(aa_list[big_rep])) {
 
 mouse_CDR3_network <- function(df) {
   setdiff_temp <- df %>%
-    arrange(n_mice) %>%
+    dplyr::arrange(n_mice) %>%
     mutate(n_mice = as.character(n_mice))
   
   setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
@@ -1040,7 +1042,7 @@ tp_response_graphs <- list()
 tp_response_stats <- list()
 
 aa_modified <- aa_data %>%
-  filter(PID.count_sum > 3)
+  filter(PID.count_sum > 4)
 
 tp_vector <- rep(unique(aa_modified$timepoint), each = length(unique(aa_modified$response)))
 
@@ -1049,10 +1051,6 @@ timepoints <- unique(aa_modified$timepoint)
 responses <- unique(aa_modified$response)
 
 rs_vector <- rep(unique(aa_modified$response), times = length(unique(aa_modified$timepoint)))
-
-graphs_list <- list(df = as.list(rep(list(aa_modified), each = length(aa_modified))),
-     tp = as.list(tp_vector),
-     rs = as.list(rs_vector))
 
 tp_response_graphs <- list(list(), list(), list(), list(), list(), list(), list(), list())
 
@@ -1441,27 +1439,27 @@ all_full_joins <- function(df, population) {
     separate(exp.y, into = c(NA, "mouse.y", NA, "flank.y", NA), sep = "_", remove = F) %>%
     unite("mouse_flank.y", mouse.y, flank.y, sep = " ")
   
-  gg <- ggplot(exp_intersect, aes(PID.fraction_sum.y, PID.fraction_sum.x)) +
+  ggplot(exp_intersect, aes(PID.fraction_sum.y, PID.fraction_sum.x)) +
     geom_point() +
     scale_x_log10() +
     scale_y_log10() +
     geom_abline(intercept = 0, slope = 1) +
     geom_smooth(method = "lm") +
     facet_grid(mouse_flank.y ~ mouse_flank.x)
-  
-  gg_grob <- ggplotGrob(gg)
-  
-  null_panel_x <- list()
-  
-  m <- 1
-  
-  for (i in 2:length(unique(exp_intersect$exp.y))) {
-    null_panel_x[[m]] <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
-    
-    m <- m + 1
-  }
-  
-  nulls <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
+  # 
+  # gg_grob <- ggplotGrob(gg)
+  # 
+  # null_panel_x <- list()
+  # 
+  # m <- 1
+  # 
+  # for (i in 2:length(unique(exp_intersect$exp.y))) {
+  #   null_panel_x[[m]] <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
+  #   
+  #   m <- m + 1
+  # }
+  # 
+  # nulls <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
 }
 
 # defined vectors and lists

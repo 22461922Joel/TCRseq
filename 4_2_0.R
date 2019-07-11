@@ -1,8 +1,15 @@
-# sort_function("D:/data/experiments/4_2_0/sort_PDFs")
-
 tumour_growth("D:/data/experiments/4_2_0/tumour_growth")
 
-sort <- read.csv("D:/data/experiments/4_2_0/sort_data.csv", stringsAsFactors = F)
+# sort_function("D:/data/experiments/4_2_0/sort_PDFs")
+
+setwd("D:/data/experiments/4_2_0")
+
+# sort <- read.csv("sort_data.csv") %>%
+#   select(-population, -exp, "exp" = "storage")
+# 
+# write.csv(sort, "sort_data.csv")
+
+sort <- read.csv("sort_data.csv")
 # 
 # sort$storage[sort$storage == "JK4.2_2._2_L_R_CD4"] <- "JK4.2_2.2_L_R_CD4"
 # 
@@ -16,7 +23,6 @@ sort <- read.csv("D:/data/experiments/4_2_0/sort_data.csv", stringsAsFactors = F
 # 
 # write.csv(sort, "D:/data/experiments/4_2_0/sort_data.csv", row.names = F)
 
-setwd("D:/data/experiments/4_2_0")
 # 
 # clean_data("D:/data/experiments/4_2_0/1239Shp17 MixCR analysis all samples/PID summary")
 
