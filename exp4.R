@@ -1,7 +1,9 @@
 jk4 <- list(jk41 = read.csv("D:/data/experiments/4_1_0/cleaned_CDR3s.csv"),
             jk42 = read.csv("D:/data/experiments/4_2_0/cleaned_CDR3s.csv")) %>%
   map(data_aa) %>%
-  map(factor_extractor)
+  bind_rows()
+
+hd_dual_tumour(jk4)
 
 jk4_sort <- list(jk41 = read.csv("D:/data/experiments/4_1_0/sort_data.csv"),
                  jk42 = read.csv("D:/data/experiments/4_2_0/sort_data.csv")) %>%
@@ -59,8 +61,6 @@ ggplot(jk4_ss, aes(pop, diversity, fill = treated)) +
 
 jk4_intersects <- map(jk4, all_intersects)
 
-jk4_unions
-
 pairing <- function(df) {
   df %>%
     filter(n_mice == 2) %>%
@@ -97,5 +97,52 @@ ggplot(jk4_pairs, aes(treated, clonal_proportion, fill = same_mouse)) +
   theme(legend.title = element_blank(), axis.title.x = element_blank()) +
   facet_grid(. ~ pop.x)
 
+jk4_unions <- jk4 %>%
+  bind_rows() %>%
+  group_by(exp) %>%
+  arrange(desc(PID.fraction_sum), .by_group = T) %>%
+  group_split()
 
+for (i in 1:length(jk4_unions)) {
+  jk4_unions[[i]]$rank <- 1:length(jk4_unions[[i]]$aaSeqCDR3)
+}
 
+jk4_unions_2 <- list()
+
+for (i in 1:length(jk4_unions)) {
+  jk4_unions_2[[i]] <- jk4_unions[[i]][1:2,]
+}
+
+jk4_unions_2 <- bind_rows(jk4_unions_2) %>%
+  factor_extractor() %>%
+  group_by(JKexp, mouse, pop) %>%
+  unite("exp_m_p", JKexp, mouse, pop, sep = "-", remove = F)
+
+table(jk4_unions_1$aaSeqCDR3, jk4_unions_1$exp_m_p)
+
+ggplot(jk4_unions_1, aes(aaSeqCDR3, fill = mouse)) +
+  geom_histogram(stat = "count") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(. ~ JKexp, scales = "free_y") +
+  scale_color_brewer(type = "div") +
+  geom_hline(yintercept = 2)
+
+jk4_unions_20 <- jk4_unions %>%
+  bind_rows() %>%
+  factor_extractor() %>%
+  filter(rank <= 20, JKexp == "JK4.2", mouse == "1.3", pop == "CD8") %>%
+  arrange(desc(PID.fraction_sum)) %>%
+  group_by(aaSeqCDR3) %>%
+  filter(n() == 2) %>%
+  ungroup() %>%
+  mutate(aaSeqCDR3 = factor(aaSeqCDR3, ordered = T))
+
+jk4_unions_20 %>%
+  ggplot(aes(aaSeqCDR3, rank, fill = flank, group = flank)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_blank(),
+        panel.grid = element_line(colour = "grey"),
+        legend.position = "none") +
+  facet_wrap(~ aaSeqCDR3, scales = "free_x")
+
+jk4_fj <- all_full_joins_df(jk4, "CD8")  

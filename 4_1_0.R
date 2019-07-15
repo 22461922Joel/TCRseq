@@ -71,6 +71,8 @@ ggplot(jk41_pairs, aes(as.character(same_mouse), n_clones)) +
   geom_jitter(width = 0.1) +
   facet_grid(. ~ pop.x)
 
-all_full_joins(jk41, "CD8")
+all_full_joins_graph(jk41, "CD8")
 
-all_full_joins(jk41, "CD4")
+all_full_joins_graph(jk41, "CD4")
+
+hd_dual_tumour_abundance(jk41, "CD8")

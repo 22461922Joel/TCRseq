@@ -22,6 +22,8 @@ data <- data %>%
   factor_separator()
 
 aa_data <- data_aa(data) %>% factor_separator()
+
+hd_timepoint(aa_data, "0")
 # summary plots
 #####
 

@@ -296,8 +296,294 @@ hd_timepoint <- function(df, tp) {
   
 }
 
-heatmap_dendrogram(exp_clean_only_aa, "6")
+hd_dual_tumour_Z_score <- function(df, population) { 
+  x_df <- df %>%
+    factor_extractor() %>%
+    filter(pop == population) %>%
+    group_by(aaSeqCDR3) %>%
+    filter(n() >= 5) %>%
+    mutate(Z_fraction = scale(PID.fraction_sum)) %>%
+    select(aaSeqCDR3, Z_fraction, exp) %>%
+    spread(aaSeqCDR3, Z_fraction)
+  
+  x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
+  
+  x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
+    as.data.frame()
+  
+  x_df_complete$exp <- x_df$exp
+  
+  x_df_complete <- x_df_complete %>%
+    gather("aaSeqCDR3", "Z_fraction", -exp)
+  
+  x1 <- x_df_complete %>%
+    spread(aaSeqCDR3, Z_fraction) %>%
+    column_to_rownames("exp") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  y1 <- x_df_complete %>%
+    spread(exp, Z_fraction) %>%
+    column_to_rownames("aaSeqCDR3") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  x_dend <- ggplotGrob(x1 %>%
+                         ggdendrogram() +
+                         theme_void())
+  
+  x_df_hm <- x_df_complete %>%
+    factor_extractor() %>%
+    mutate(exp = factor(exp, levels = dendro_data(x1)$labels$label),
+           aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+    distinct()
+  
+  x_df_hm$dummy <- 1
+  
+  x_rs <- ggplotGrob(x_df_hm %>%
+                       select(exp, dummy, mouse) %>%
+                       distinct() %>%
+                       ggplot(aes(exp, dummy)) +
+                       geom_tile(aes(fill = mouse)) +
+                       theme_void() +
+                       scale_fill_discrete(guide = F))
+  
+  x_gg <- ggplotGrob(x_df_hm %>%
+                       ggplot(aes(exp, aaSeqCDR3)) +
+                       geom_tile(aes(fill = Z_fraction)) +
+                       theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
+                       scale_fill_gradient2(name = "Z score"))
+  
+  panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+  
+  x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+  
+  x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+  
+  grid.newpage()
+  
+  grid.draw(x_gg)
+  
+}
 
+hd_dual_tumour_abundance <- function(df, population) { 
+  x_df <- df %>%
+    factor_extractor() %>%
+    filter(pop == population) %>%
+    group_by(aaSeqCDR3) %>%
+    filter(n() >= 9) %>%
+    mutate(Z_fraction = scale(PID.fraction_sum)) %>%
+    select(aaSeqCDR3, PID.fraction_sum, exp) %>%
+    spread(aaSeqCDR3, PID.fraction_sum)
+  
+  x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
+  
+  x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
+    as.data.frame()
+  
+  x_df_complete$exp <- x_df$exp
+  
+  x_df_complete <- x_df_complete %>%
+    gather("aaSeqCDR3", "PID.fraction_sum", -exp)
+  
+  x1 <- x_df_complete %>%
+    spread(aaSeqCDR3, PID.fraction_sum) %>%
+    column_to_rownames("exp") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  y1 <- x_df_complete %>%
+    spread(exp, PID.fraction_sum) %>%
+    column_to_rownames("aaSeqCDR3") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  x_dend <- ggplotGrob(x1 %>%
+                         ggdendrogram() +
+                         theme_void())
+  
+  x_df_hm <- x_df_complete %>%
+    factor_extractor() %>%
+    mutate(exp = factor(exp, levels = dendro_data(x1)$labels$label),
+           aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+    distinct()
+  
+  x_df_hm$dummy <- 1
+  
+  x_rs <- ggplotGrob(x_df_hm %>%
+                       select(exp, dummy, mouse) %>%
+                       distinct() %>%
+                       ggplot(aes(exp, dummy)) +
+                       geom_tile(aes(fill = mouse)) +
+                       theme_void() +
+                       scale_fill_discrete(guide = F))
+  
+  x_gg <- ggplotGrob(x_df_hm %>%
+                       ggplot(aes(exp, aaSeqCDR3)) +
+                       geom_tile(aes(fill = PID.fraction_sum)) +
+                       theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
+                       scale_fill_gradient2(name = "abundance"))
+  
+  panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+  
+  x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+  
+  x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+  
+  grid.newpage()
+  
+  grid.draw(x_gg)
+  
+}
+#####
+# dh dual tumour framework Z score
+#####
+x_df <- jk42 %>%
+  factor_extractor() %>%
+  filter(pop == "CD8") %>%
+  group_by(aaSeqCDR3) %>%
+  filter(n() >= 5) %>%
+  mutate(Z_fraction = scale(PID.fraction_sum)) %>%
+  select(aaSeqCDR3, Z_fraction, exp) %>%
+  spread(aaSeqCDR3, Z_fraction)
+
+x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
+
+x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
+  as.data.frame()
+
+x_df_complete$exp <- x_df$exp
+
+x_df_complete <- x_df_complete %>%
+  gather("aaSeqCDR3", "Z_fraction", -exp)
+
+x1 <- x_df_complete %>%
+  spread(aaSeqCDR3, Z_fraction) %>%
+  column_to_rownames("exp") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+y1 <- x_df_complete %>%
+  spread(exp, Z_fraction) %>%
+  column_to_rownames("aaSeqCDR3") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+x_dend <- ggplotGrob(x1 %>%
+                       ggdendrogram() +
+                       theme_void())
+
+x_df_hm <- x_df_complete %>%
+  factor_extractor() %>%
+  mutate(exp = factor(exp, levels = dendro_data(x1)$labels$label),
+         aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+  distinct()
+
+x_df_hm$dummy <- 1
+
+x_rs <- ggplotGrob(x_df_hm %>%
+                     select(exp, dummy, mouse) %>%
+                     distinct() %>%
+                     ggplot(aes(exp, dummy)) +
+                     geom_tile(aes(fill = mouse)) +
+                     theme_void() +
+                     scale_fill_discrete(guide = F))
+
+x_gg <- ggplotGrob(x_df_hm %>%
+                     ggplot(aes(exp, aaSeqCDR3)) +
+                     geom_tile(aes(fill = Z_fraction)) +
+                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
+                     scale_fill_gradient2(name = "Z score"))
+
+panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+
+x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+
+x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+
+grid.newpage()
+
+grid.draw(x_gg)
+#####
+# dh dual tumour framework abundance
+#####
+x_df <- jk42 %>%
+  factor_extractor() %>%
+  filter(pop == "CD8") %>%
+  group_by(aaSeqCDR3) %>%
+  filter(n() >= 3) %>%
+  mutate(Z_fraction = scale(PID.fraction_sum)) %>%
+  select(aaSeqCDR3, PID.fraction_sum, exp) %>%
+  spread(aaSeqCDR3, PID.fraction_sum)
+
+x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
+
+x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
+  as.data.frame()
+
+x_df_complete$exp <- x_df$exp
+
+x_df_complete <- x_df_complete %>%
+  gather("aaSeqCDR3", "PID.fraction_sum", -exp)
+
+x1 <- x_df_complete %>%
+  spread(aaSeqCDR3, PID.fraction_sum) %>%
+  column_to_rownames("exp") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+y1 <- x_df_complete %>%
+  spread(exp, PID.fraction_sum) %>%
+  column_to_rownames("aaSeqCDR3") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+x_dend <- ggplotGrob(x1 %>%
+                       ggdendrogram() +
+                       theme_void())
+
+x_df_hm <- x_df_complete %>%
+  factor_extractor() %>%
+  mutate(exp = factor(exp, levels = dendro_data(x1)$labels$label),
+         aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+  distinct()
+
+x_df_hm$dummy <- 1
+
+x_rs <- ggplotGrob(x_df_hm %>%
+                     select(exp, dummy, mouse) %>%
+                     distinct() %>%
+                     ggplot(aes(exp, dummy)) +
+                     geom_tile(aes(fill = mouse)) +
+                     theme_void() +
+                     scale_fill_discrete(guide = F))
+
+x_gg <- ggplotGrob(x_df_hm %>%
+                     ggplot(aes(exp, aaSeqCDR3)) +
+                     geom_tile(aes(fill = PID.fraction_sum)) +
+                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
+                     scale_fill_gradient2(name = "abundance"))
+
+panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+
+x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+
+x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+
+grid.newpage()
+
+grid.draw(x_gg)
+#####
+# dh timepoint framework
+#####
 
 x_df <- exp_clean_only_aa %>%
   filter(timepoint == "6") %>%
@@ -1403,8 +1689,9 @@ all_intersects <- function(df) {
   
 }
 
-all_full_joins <- function(df, population) {
+all_full_joins_graph <- function(df, population) {
   dat <- df %>%
+    factor_extractor() %>%
     filter(pop == population)
   
   pop_vector <- dat$pop %>% unique()
@@ -1430,8 +1717,8 @@ all_full_joins <- function(df, population) {
   
   exp_intersect <- map_list %>%
     bind_rows() %>%
-    fill(ends_with(".x"), .direction = "down") %>%
-    fill(ends_with(".y"), .direction = "up") %>%
+    fill(ends_with(".x"), -ends_with("sum.x"), .direction = "down") %>%
+    fill(ends_with(".y"),-ends_with("sum.y"), .direction = "up") %>%
     unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
     group_by(mice) %>%
     separate(exp.x, into = c(NA, "mouse.x", NA, "flank.x", NA), sep = "_", remove = F) %>%
@@ -1441,8 +1728,8 @@ all_full_joins <- function(df, population) {
   
   ggplot(exp_intersect, aes(PID.fraction_sum.y, PID.fraction_sum.x)) +
     geom_point() +
-    scale_x_log10() +
-    scale_y_log10() +
+    scale_x_log10(limits = c(NA, 1)) +
+    scale_y_log10(limits = c(1e-6, 1)) +
     geom_abline(intercept = 0, slope = 1) +
     geom_smooth(method = "lm") +
     facet_grid(mouse_flank.y ~ mouse_flank.x)
@@ -1460,6 +1747,44 @@ all_full_joins <- function(df, population) {
   # }
   # 
   # nulls <- seq(from = 2, length.out = length(unique(exp_intersect$exp.y)), by = 1)
+}
+
+all_full_joins_df <- function(df, population) {
+  dat <- df %>%
+    factor_extractor() %>%
+    filter(pop == population)
+  
+  pop_vector <- dat$pop %>% unique()
+  
+  map_list <- list()
+  
+  m <- 1
+  
+  for (j in 1:length(pop_vector)) {
+    exp_group <- dat %>%
+      filter(pop == pop_vector[j]) %>%
+      group_by(exp) %>%
+      group_split()
+    for (k in 2) {
+      exp_calc <- CombSet(exp_group, m = k)
+      for (l in 1:(length(exp_calc)/k)) {
+        map_list[[m]] <- exp_calc[l,] %>% reduce(full_join, by = "aaSeqCDR3")
+        m <- m + 1
+      }
+    }
+  }
+  
+  
+  exp_intersect <- map_list %>%
+    bind_rows() %>%
+    fill(ends_with(".x"), -ends_with("sum.x"), .direction = "down") %>%
+    fill(ends_with(".y"),-ends_with("sum.y"), .direction = "up") %>%
+    unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
+    group_by(mice) %>%
+    separate(exp.x, into = c(NA, "mouse.x", NA, "flank.x", NA), sep = "_", remove = F) %>%
+    unite("mouse_flank.x", mouse.x, flank.x, sep = " ") %>%
+    separate(exp.y, into = c(NA, "mouse.y", NA, "flank.y", NA), sep = "_", remove = F) %>%
+    unite("mouse_flank.y", mouse.y, flank.y, sep = " ")
 }
 
 # defined vectors and lists
@@ -1545,6 +1870,7 @@ ggplot(exp_int, aes(x = as.factor(n_mice), y = clonal_proportion, fill = respons
 #####
 morisita_network <- function(df, population) {
   dat <- df %>%
+    factor_extractor() %>%
     filter(pop == population)
   
   pop_vector <- dat$pop %>% unique()
@@ -1570,8 +1896,8 @@ morisita_network <- function(df, population) {
   
   exp_intersect <- map_list %>%
     bind_rows() %>%
-    fill(ends_with(".x"), .direction = "down") %>%
-    fill(ends_with(".y"), .direction = "up") %>%
+    fill(ends_with(".x"), -ends_with("sum.x"), .direction = "down") %>%
+    fill(ends_with(".y"),-ends_with("sum.y"), .direction = "up") %>%
     unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
     select(starts_with("PID.count"), mice, aaSeqCDR3, starts_with("exp")) %>%
     group_by(mice) %>%
@@ -1606,8 +1932,8 @@ morisita_network <- function(df, population) {
     filter(index != 1) %>%
     separate(intersect, into = c("from", "to"), sep = "-") %>%
     mutate(index = index * 10) %>%
-    select(from, to, index) %>%
-    filter(index > 5) # remove irrelevant edges
+    select(from, to, index)# %>%
+ #   filter(index > 1) # remove irrelevant edges
   
   exp_vertexlist <- data.frame(exp = c(exp_edgelist$from, exp_edgelist$to), stringsAsFactors = F) %>%
     distinct() %>% 
