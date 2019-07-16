@@ -60,6 +60,15 @@ morisita_network(jk41, "CD8")
 
 jk41_overlaps <- all_intersects(jk41)
 
+jk41_overlaps$same_mouse <- mice_matching(jk41_overlaps)
+
+ggplot(jk41_overlaps, aes(factor(n_mice, levels = 2:12), n_clones, group = n_mice, colour = same_mouse)) +
+  geom_boxplot() +
+  geom_point() +
+  facet_grid(. ~ pop.x) +
+  labs(y = "matching clones", x = "n mice") +
+  theme(legend.position = "none")
+
 jk41_pairs <- jk41_overlaps %>%
   filter(n_mice == 2) %>%
   separate(mice, 

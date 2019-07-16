@@ -124,6 +124,25 @@ factor_extractor <- function(data) {
                                   "pop"), sep = "_", remove = F)
 }
 
+factor_extractor_union <- function(data) {
+  data %>%
+    separate(exp.x, into = c("JKexp.x",
+                             "mouse.x",
+                             "tissue.x",
+                             "flank.x",
+                             "pop.x"),
+             sep = "_",
+             remove = F) %>%
+    separate(exp.y, into = c("JKexp.y",
+                             "mouse.y",
+                             "tissue.y",
+                             "flank.y",
+                             "pop.y"),
+             sep = "_",
+             remove = F)
+    
+}
+
 #####
 # richness eveness
 #####
@@ -1689,6 +1708,21 @@ all_intersects <- function(df) {
   
 }
 
+mice_matching <- function(data) {
+  
+  match_vector <- (str_trunc(data$mice, width = 9, side = "right", ellipsis = "") %>%
+                     str_trunc(width = 3, side = "left", ellipsis = "")) == (str_trunc(data$mice, width = 27, side = "right", ellipsis = "") %>%
+                                                                               str_trunc(width = 3, side = "left", ellipsis = ""))
+  
+  match_vector <- match_vector & data$n_mice == 2
+  
+  match_vector[match_vector == T] <- "within"
+  
+  match_vector[match_vector == F] <- "between"
+  
+  match_vector
+}
+
 all_full_joins_graph <- function(df, population) {
   dat <- df %>%
     factor_extractor() %>%
@@ -1764,7 +1798,11 @@ all_full_joins_df <- function(df, population) {
     exp_group <- dat %>%
       filter(pop == pop_vector[j]) %>%
       group_by(exp) %>%
+      arrange(desc(PID.fraction_sum), .by_group = T) %>%
       group_split()
+    for (i in 1:length(exp_group)) {
+      exp_group[[i]]$rank <- 1:length(exp_group[[i]]$aaSeqCDR3)
+    }
     for (k in 2) {
       exp_calc <- CombSet(exp_group, m = k)
       for (l in 1:(length(exp_calc)/k)) {
@@ -1777,8 +1815,8 @@ all_full_joins_df <- function(df, population) {
   
   exp_intersect <- map_list %>%
     bind_rows() %>%
-    fill(ends_with(".x"), -ends_with("sum.x"), .direction = "down") %>%
-    fill(ends_with(".y"),-ends_with("sum.y"), .direction = "up") %>%
+    fill(ends_with(".x"), -ends_with("sum.x"), -rank.x, .direction = "down") %>%
+    fill(ends_with(".y"),-ends_with("sum.y"), -rank.y, .direction = "up") %>%
     unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
     group_by(mice) %>%
     separate(exp.x, into = c(NA, "mouse.x", NA, "flank.x", NA), sep = "_", remove = F) %>%

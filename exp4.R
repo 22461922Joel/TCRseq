@@ -145,4 +145,58 @@ jk4_unions_20 %>%
         legend.position = "none") +
   facet_wrap(~ aaSeqCDR3, scales = "free_x")
 
-jk4_fj <- all_full_joins_df(jk4, "CD8")  
+jk4_8fj <- all_full_joins_df(jk4, "CD8") %>%
+  factor_extractor_union() %>%
+  filter(JKexp.x == JKexp.y)
+
+jk4_8fj$n_mice <- jk4_8fj$mouse.x == jk4_8fj$mouse.y & jk4_8fj$JKexp.x == jk4_8fj$JKexp.y
+
+jk4_8fj$n_mice[jk4_8fj$n_mice == T] <- "within"
+
+jk4_8fj$n_mice[jk4_8fj$n_mice == F] <- "between"
+
+
+sum(jk4_8fj$n_mice == "between")
+
+sum(jk4_8fj$n_mice == "within")
+
+jk4_8fj_sample <- jk4_8fj %>%
+  filter(JKexp.x == "JK4.1") %>%
+  ungroup() %>%
+  sample_n(size = sum(jk4_8fj$JKexp.x == "JK4.1") - sum(jk4_8fj$JKexp.x == "JK4.2"))
+
+jk4_8fj_sample2 <- jk4_8fj %>%
+  anti_join(jk4_8fj_sample)
+
+jk4_8fj_sample3 <- jk4_8fj_sample2 %>%
+  filter(n_mice == "between") %>%
+  ungroup() %>%
+  sample_n(size = sum(.$n_mice == "between") - sum(jk4_8fj_sample2$n_mice == "within"))
+
+jk4_8fj_top <- jk4_8fj_sample2 %>%
+  anti_join(jk4_8fj_sample3) %>%
+  filter(rank.x < 50 | rank.y < 50) %>%
+  na.omit()
+
+jk4_8fj_s <- jk4_8fj_sample2 %>%
+  anti_join(jk4_8fj_sample3) %>%
+  na.omit()
+
+ggplot(jk4_8fj_top, aes(rank.x, rank.y, colour = n_mice)) +
+  geom_jitter(width = 0.3, height = 0.3) +
+  scale_y_log10() +
+  scale_x_log10() +
+  facet_grid(JKexp.x ~ JKexp.y)
+
+ggplot(jk4_8fj_top, aes(rank.x, rank.y, colour = JKexp.x, alpha = 0.3)) +
+  geom_jitter(width = 0.2, height = 0.2) +
+  scale_y_log10() +
+  scale_x_log10() +
+  facet_grid(JKexp.x ~ n_mice)
+
+-ggplot(jk4_8fj_s, aes(n_mice, y = n_mice, group = JKexp.x, fill = JKexp.x)) +
+  geom_bar(position = "dodge", aes(y = stat(count))) +
+  labs(y = "count")
+
+ggplot(jk4_8fj_s, aes(x = JKexp.x, y = n_mice)) +
+  geom_point(aes(y = stat(count)))
