@@ -26,6 +26,8 @@ sort <- read.csv("sort_data.csv")
 # 
 # clean_data("D:/data/experiments/4_2_0/1239Shp17 MixCR analysis all samples/PID summary")
 
+neg_4_2_0 <- PID_control("D://data//experiments//4_2_0//1239Shp17 MixCR analysis all samples")
+
 data <- read.csv("cleaned_CDR3s.csv")
 
 summary_TCRseq(data)

@@ -33,6 +33,7 @@ library(DescTools)
 library(divo)
 library(readxl)
 library(tidyverse)
+library(lubridate)
 library(ggpubr)
 library(colorRamps)
 
@@ -116,8 +117,8 @@ clean_data <- function(directory) {
 
 # extracts exp column into the factors defined by the sort name or the name defined by IIID
 
-factor_extractor <- function(data) {
-  data %>% separate(exp, into = c("JKexp", 
+factor_extractor <- function(df) {
+  df %>% separate(exp, into = c("JKexp", 
                                   "mouse", 
                                   "tissue", 
                                   "flank", 
@@ -1987,6 +1988,73 @@ morisita_network <- function(df, population) {
     labs(title = population)
   
 }
+
+morisita_df <- function(df, population) {
+  dat <- df %>%
+    factor_extractor() %>%
+    filter(pop == population)
+  
+  pop_vector <- dat$pop %>% unique()
+  
+  map_list <- list()
+  
+  m <- 1
+  
+  for (j in 1:length(pop_vector)) {
+    exp_group <- dat %>%
+      filter(pop == pop_vector[j]) %>%
+      group_by(exp) %>%
+      group_split()
+    for (k in 2) {
+      exp_calc <- CombSet(exp_group, m = k)
+      for (l in 1:(length(exp_calc)/k)) {
+        map_list[[m]] <- exp_calc[l,] %>% reduce(full_join, by = "aaSeqCDR3")
+        m <- m + 1
+      }
+    }
+  }
+  
+  
+  exp_intersect <- map_list %>%
+    bind_rows() %>%
+    fill(ends_with(".x"), -ends_with("sum.x"), .direction = "down") %>%
+    fill(ends_with(".y"),-ends_with("sum.y"), .direction = "up") %>%
+    unite("mice", starts_with("exp"), sep = "-", remove = F) %>%
+    select(starts_with("PID.count"), mice, aaSeqCDR3, starts_with("exp")) %>%
+    group_by(mice) %>%
+    group_split()
+  
+  exp_intersect <- exp_intersect %>%
+    map(ungroup) %>%
+    map(column_to_rownames, var = "aaSeqCDR3") %>%
+    map(mutate, exp.x = as.character(exp.x)) %>%
+    map(mutate, exp.y = as.character(exp.y))
+  
+  for (i in 1:length(exp_intersect)) {
+    names(exp_intersect[[i]])[1] <- unique(exp_intersect[[i]][,4])
+    names(exp_intersect[[i]])[2] <- unique(exp_intersect[[i]][,5])
+  }
+  
+  exp_intersect <- exp_intersect %>%
+    map(select, -mice, -starts_with("exp")) %>%
+    map(as.matrix) %>%
+    map(mh, PlugIn = T) %>%
+    map(as.data.frame)
+  
+  for (i in 1:length(exp_intersect)) {
+    names(exp_intersect[[i]]) <- str_remove(names(exp_intersect[[i]]), "PlugIn.")
+    exp_intersect[[i]][,2] <- rep(paste(names(exp_intersect[[i]]), collapse = "-"), times = nrow(exp_intersect[[i]]))
+    names(exp_intersect[[i]]) <- c("index", "intersect")
+  }
+  
+  exp_edgelist <- exp_intersect %>%
+    bind_rows() %>%
+    as.data.frame() %>%
+    filter(index != 1) %>%
+    separate(intersect, into = c("from", "to"), sep = "-") %>%
+    mutate(index = index * 10) %>%
+    select(from, to, index)
+}
 #####
 # intersection plot
 #####
@@ -2324,7 +2392,7 @@ ggnet2(graph, node.size = V(graph)$counts,
   guides(size = "none")
 
 #####
-# overlapping PIDs and clones
+# Negative control finding function
 #####
 
 #PID_control takes in the directory containing the PIDs from IIID, usually the PID summary folder
@@ -2335,12 +2403,13 @@ PID_control <- function(directory) {
   neg_PIDs <- read.csv("D://data//experiments//neg_control//output//neg_PIDs.csv") %>%
     select(-X)
   
-  setwd(directory)
+  setwd(paste(directory, "//PID summary", sep = ""))
   
   exp_PIDs <- map(dir()[str_detect(dir(), " miXCR clones read names with PIDs.csv")], read.csv, stringsAsFactors = F)
   
   exp_PIDs <- exp_PIDs %>%
-    map(select, -`Well`, -`Clone.Id`, -`read.name`) %>%
+    map(select, -`Well`, -`Clone.Id`) %>%
+    map(separate, `read.name`, into = c("machine_id", "run_number", "lane", "tile", NA, NA, NA, NA, NA, NA), sep = ":") %>%
     map(distinct)
   
   exp_PIDs <- exp_PIDs %>%
@@ -2363,7 +2432,27 @@ PID_control <- function(directory) {
     distinct()
   
   PID_overlap_summary <- PID_overlap %>%
-    group_by(Subject.Id, CDR3) %>%
+    group_by(Subject.Id, CDR3, run_number, machine_id, lane, tile) %>%
     summarise(matching_PIDs = n_distinct(PID))
 }
+
+# get date run for all samples
+
+setwd("D://data//experiments//4_1_0//1239Shp14_Final MiXCR results//Alignment Summary")
+
+names_exp <- dir()[str_detect(dir(), " alignment report.csv")] %>%
+  str_remove(" alignment report.csv")
+
+raw_exp <- dir()[str_detect(dir(), " alignment report.csv")] %>%
+  map(read.csv, stringsAsFactors = F)
+
+names(raw_exp) <- names_exp
+
+exp <- raw_exp %>%
+  bind_rows() %>%
+  select(Sample.Id, Analysis.Date)
+
+exp$Analysis.Date <- exp$Analysis.Date %>%
+  str_remove(" AWST") %>%
+  parse_date_time("a b d H:M:S Y")
 #####

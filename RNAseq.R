@@ -13,6 +13,8 @@ data <- read.csv("cleaned_CDR3s.csv", stringsAsFactors = F)
 #  
 #  write.csv(data, "cleaned_CDR3s.csv")
 
+neg_RENCA <- PID_control("D://data//experiments//RNAseq//1239Shp15b_Joost_final")
+
 factor_separator <- function(data) {
   data %>% separate(exp, into = c("tpmouse", "response", "primer"), sep = "-", remove = F) %>%
     separate(tpmouse, into = c("timepoint", "mouse"), sep = 1, remove = F)

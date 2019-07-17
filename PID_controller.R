@@ -11,7 +11,7 @@ raw_exp <- dir()[str_detect(dir(), " miXCR clones read names with PIDs.csv")] %>
 
 #setwd("/Users/joelkidman/Documents/PhD_documents/RNAseq/")
 
-setwd("D://mice_experiments//neg_control//output") # change directory to where you want the pictures to go
+setwd("D://data//experiments//neg_control//output") # change directory to where you want the pictures to go
 
 names(raw_exp) <- names_exp
 
@@ -44,4 +44,20 @@ remove(reject_vector, exp_rejects)
 
 write.csv(neg_PIDs, "neg_PIDs.csv")
   
+#####
+# relationship with other samples
+#####
+
+neg_ctl <- PID_control("D://data//experiments//neg_control//1239Shp16_JK_final")
+
+neg <- neg_4_1_0 %>%
+  bind_rows(neg_4_2_0) %>%
+  bind_rows(neg_KR) %>%
+  bind_rows(neg_RENCA) %>%
+  bind_rows(neg_ctl)
+
+neg_summary <- neg %>%
+  group_by(machine_id, run_number) %>%
+  summarise(n_PIDs = sum(matching_PIDs))
+
 #####

@@ -194,7 +194,7 @@ ggplot(jk4_8fj_top, aes(rank.x, rank.y, colour = JKexp.x, alpha = 0.3)) +
   scale_x_log10() +
   facet_grid(JKexp.x ~ n_mice)
 
--ggplot(jk4_8fj_s, aes(n_mice, y = n_mice, group = JKexp.x, fill = JKexp.x)) +
+ggplot(jk4_8fj_s, aes(n_mice, y = n_mice, group = JKexp.x, fill = JKexp.x)) +
   geom_bar(position = "dodge", aes(y = stat(count))) +
   labs(y = "count")
 

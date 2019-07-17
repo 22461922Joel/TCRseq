@@ -46,6 +46,8 @@ write.csv(sort, "sort_data.csv")
 # 
 # write.csv(data, "cleaned_CDR3s.csv")
 
+neg_4_1_0 <- PID_control("D://data//experiments//4_1_0//1239Shp14_Final MiXCR results")
+
 data <- read.csv("cleaned_CDR3s.csv")
 
 summary_TCRseq(data)
