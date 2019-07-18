@@ -59,7 +59,7 @@ ggplot(jk4_ss, aes(pop, diversity, fill = treated)) +
   stat_compare_means(aes(label = ..p.signif..)) +
   theme(legend.title = element_blank(), axis.title.x = element_blank())
 
-jk4_intersects <- map(jk4, all_intersects)
+jk4_intersects <- all_intersects(jk4)
 
 pairing <- function(df) {
   df %>%
@@ -200,3 +200,5 @@ ggplot(jk4_8fj_s, aes(n_mice, y = n_mice, group = JKexp.x, fill = JKexp.x)) +
 
 ggplot(jk4_8fj_s, aes(x = JKexp.x, y = n_mice)) +
   geom_point(aes(y = stat(count)))
+
+jk4m <- morisi

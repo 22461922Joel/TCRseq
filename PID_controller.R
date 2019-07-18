@@ -60,4 +60,6 @@ neg_summary <- neg %>%
   group_by(machine_id, run_number) %>%
   summarise(n_PIDs = sum(matching_PIDs))
 
+write.csv(neg_summary, "run_vs_machine.csv")
+
 #####

@@ -2052,7 +2052,6 @@ morisita_df <- function(df, population) {
     as.data.frame() %>%
     filter(index != 1) %>%
     separate(intersect, into = c("from", "to"), sep = "-") %>%
-    mutate(index = index * 10) %>%
     select(from, to, index)
 }
 #####
