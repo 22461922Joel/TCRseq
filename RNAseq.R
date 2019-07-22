@@ -206,3 +206,42 @@ ggplot(summarym, aes(timepoint, degreePerRichness * 100, fill = response)) +
   labs(y = "% connected nodes")
 
 #####
+# AB1 and last of RENCA library prep
+#####
+
+ab1 <- read.csv("D://data//experiments//RNAseq//output//ab1_RNA_RT.csv")
+
+renca <- read.csv("D://data//experiments//RNAseq//output//renca_RNA_RT.csv")
+
+IIID <- renca %>%
+  bind_rows(ab1) %>%
+  select(-sampled) %>%
+  na.omit()
+
+template <- read.csv("D://Sequencing running spreadsheet//primer_template.csv", stringsAsFactors = F)
+
+names(template) <- c("primer", "primers")
+
+IIID <- IIID %>%
+  left_join(template)
+
+IIID$Mouse_ID <- str_pad(IIID$Mouse_ID, 3, pad = "0")
+
+IIID$Tissue <- toupper(IIID$Tissue)
+
+IIID$PCR <- "PCR2"
+
+IIID <- IIID %>%
+  unite("sample", Tissue, Mouse_ID, Group, PCR)
+
+date <- data.frame(octet = unique(IIID$octet),
+                   date_temp1 = unique(IIID$octet),
+                   date_temp2 = "Jun-2019") %>%
+  unite("date", date_temp1, date_temp2, sep = "-")
+
+IIID <- IIID %>%
+  left_join(date)
+
+write_excel_csv(IIID, "D://data//experiments//RNAseq//output//IIID_ab1.csv")
+
+#####

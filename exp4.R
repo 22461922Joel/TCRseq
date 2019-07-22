@@ -201,4 +201,10 @@ ggplot(jk4_8fj_s, aes(n_mice, y = n_mice, group = JKexp.x, fill = JKexp.x)) +
 ggplot(jk4_8fj_s, aes(x = JKexp.x, y = n_mice)) +
   geom_point(aes(y = stat(count)))
 
-jk4m <- morisi
+#####
+# removing similar clones
+#####
+
+
+
+#####

@@ -1502,15 +1502,11 @@ for (g in 1:length(tp_response_stats)) {
       !is.na(vertex_attr(tp_response_graphs[[g]], 
                          name = tpmouse[h]))][degree(tp_response_graphs[[g]], 
                                                      V(tp_response_graphs[[g]])[
-        !is.na(vertex_attr(tp_response_graphs[[g]],  name = tpmouse[h]))]) > 1] %>%
+        !is.na(vertex_attr(tp_response_graphs[[g]],  name = tpmouse[h]))]) >= 1] %>%
       length()
     m <- m + 1
   }
 }
-
-igraph::V(tp_response_graphs[[8]])
-
-graph_stats_degree
 
 tpmouse_response <- exp_clean_only_aa %>%
   ungroup() %>%
@@ -1709,13 +1705,13 @@ all_intersects <- function(df) {
   
 }
 
-mice_matching <- function(data) {
+mice_matching <- function(df) {
   
-  match_vector <- (str_trunc(data$mice, width = 9, side = "right", ellipsis = "") %>%
-                     str_trunc(width = 3, side = "left", ellipsis = "")) == (str_trunc(data$mice, width = 27, side = "right", ellipsis = "") %>%
+  match_vector <- (str_trunc(df$mice, width = 9, side = "right", ellipsis = "") %>%
+                     str_trunc(width = 3, side = "left", ellipsis = "")) == (str_trunc(df$mice, width = 27, side = "right", ellipsis = "") %>%
                                                                                str_trunc(width = 3, side = "left", ellipsis = ""))
   
-  match_vector <- match_vector & data$n_mice == 2
+  match_vector <- match_vector & df$n_mice == 2
   
   match_vector[match_vector == T] <- "within"
   
@@ -1826,7 +1822,9 @@ all_full_joins_df <- function(df, population) {
     unite("mouse_flank.y", mouse.y, flank.y, sep = " ")
 }
 
-# defined vectors and lists
+#####
+# overlapping framework
+#####
 
 tp_vector <- exp_clean_only_aa$timepoint %>% unique()
 
@@ -1853,24 +1851,6 @@ for (i in 1:length(rs_vector)) {
       for (l in 1:(length(exp_calc)/k)) {
         map_list[[m]] <- exp_calc[l, ] %>% reduce(inner_join, by = "aaSeqCDR3")
         m <- m + 1
-      }
-    }
-  }
-}
-
-test_rs <- 1:2
-
-test_tp <- 1:4
-
-test_eg <- 2:5
-
-test_ec <- CombN(1:length(test_eg), m = 2:length(test_eg))
-
-for (i in 1:length(rs_vector)) {
-  for (j in 1:length(tp_vector)) {
-    for (k in 2:length(exp_group)) {
-      for (l in 1:(sum(test_ec)/k)) {
-        print(paste(i, j, k - 1, l))
       }
     }
   }
@@ -1971,8 +1951,8 @@ morisita_network <- function(df, population) {
     filter(index != 1) %>%
     separate(intersect, into = c("from", "to"), sep = "-") %>%
     mutate(index = index * 10) %>%
-    select(from, to, index)# %>%
- #   filter(index > 1) # remove irrelevant edges
+    select(from, to, index) %>%
+    filter(index > 3) # remove irrelevant edges
   
   exp_vertexlist <- data.frame(exp = c(exp_edgelist$from, exp_edgelist$to), stringsAsFactors = F) %>%
     distinct() %>% 
@@ -2054,94 +2034,6 @@ morisita_df <- function(df, population) {
     separate(intersect, into = c("from", "to"), sep = "-") %>%
     select(from, to, index)
 }
-#####
-# intersection plot
-#####
-write.csv(exp_clone_intersect_summary, "clone_intersections.csv")
-
-exp_clone_intersect <- exp_clone_intersect_summary %>%
-  group_by(pop) %>%
-  mutate(`scaled clone overlap` = scale(intersect_CDR3)) %>%
-  separate(from, into = c("tumour1", NA), sep = 5) %>%
-  separate(to, into = c("tumour2", NA), sep = 5)
-
-ggplot(exp_clone_intersect, aes(tumour1, tumour2, fill = `scaled clone overlap`)) +
-  geom_tile() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  scale_fill_gradient2(low = "blue",
-                      high = "red",
-                      mid = "black") +
-  facet_wrap(~ pop, scales = "free")
-#####
-# clones overlap
-#####
-
-exp_intersect <- list()
-
-for (i in 1:length(exp_group)) {
-  exp_intersect[[i]] <- lapply(exp_group, inner_join, y = exp_group[[i]], by = "aaSeqCDR3")
-}
-
-names(exp_intersect) <- unique(exp_clean$exp)
-
-for (i in 1:length(exp_intersect)) {
-  names(exp_intersect[[i]]) <- unique(exp_clean$exp)
-}
-
-exp_intersect_unique <- exp_intersect %>%
-  map(bind_rows) %>%
-  bind_rows() %>%
-  filter(population.x == population.y) %>%
-  select(flank_mouse_pop.x, flank_mouse_pop.y) %>%
-  filter(flank_mouse_pop.x != flank_mouse_pop.y) %>%
-  mutate(temp_min = pmin(flank_mouse_pop.x, flank_mouse_pop.y),
-         temp_max = pmax(flank_mouse_pop.x, flank_mouse_pop.y)) %>%
-  unite("Intersect", temp_min, temp_max) %>%
-  select(Intersect) %>%
-  unique()
-
-exp_intersect_clean <- exp_intersect %>%
-  map(bind_rows) %>%
-  bind_rows() %>%
-  unite("Intersect", flank_mouse_pop.x, flank_mouse_pop.y, sep = "_", remove = F) %>%
-  filter(mouse_flank.x != mouse_flank.y, population.x == population.y) %>%
-  arrange(desc(PID.count.x)) %>%
-  right_join(exp_intersect_unique) %>%
-  mutate(residual = PID.fraction.x - PID.fraction.y, popul = population.x, norm_residual = scale(residual))
-
-exp_intersect_clean$mouse_flank.x <- factor(exp_intersect_clean$mouse_flank.x, levels = c("1.0_L", "1.2_L", "1.3_L", "1.0_R", "1.2_R"))
-exp_intersect_clean$mouse_flank.y <- factor(exp_intersect_clean$mouse_flank.y, levels = c("1.3_R", "1.2_R", "1.0_R", "1.3_L", "1.2_L"))
-
-gg_plot <- exp_intersect_clean %>%
-  filter(popul == "CD4") %>%
-  ggplot(aes(PID.fraction.x, PID.fraction.y)) +
-  scale_x_log10() +
-  scale_y_log10() +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  geom_abline(slope = 1, intercept = 0) +
-  facet_grid(mouse_flank.y ~ mouse_flank.x) +
-  labs(title = "CD4")
-
-gg_grob <- ggplotGrob(gg_plot)
-
-idx <- which(gg_grob$layout$name %in% c("panel-2-5",
-                                        "panel-3-5",
-                                        "panel-4-3", 
-                                        "panel-5-3", 
-                                        "panel-3-4", 
-                                        "panel-4-4", 
-                                        "panel-4-5", 
-                                        "panel-5-2", 
-                                        "panel-5-3", 
-                                        "panel-5-4", 
-                                        "panel-5-5"))
-
-for (i in idx) gg_grob$grobs[[i]] <- nullGrob()
-
-grid.newpage()
-grid.draw(gg_grob)
-
 #####
 # residue network
 #####
@@ -2258,137 +2150,6 @@ residue_network <- function(List) {
       labs(title = List[1,1])
 
 }
-
-residue_networks <- list()
-
-setwd("D://mice_Experiments//4_1_0//residue_networks")
-
-for (i in 1:length(exp_group)) {
-  
-  gg <- residue_network(exp_group[[i]])
-  
-  ggsave(paste(exp_group[[i]][1,1], ".png", sep = ""), gg)
-  
-}
-
-residue_network(exp_group[[12]])
-#####
-# residue test function
-#####
-
-
-exp_group <- exp_clean_only_aa %>%
-  mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
-  group_by(timepoint, response) %>%
-  group_split()
-
-residue_profile <- exp_group[[8]] %>%
-  as.data.frame() %>%
-  mutate(residue_group = str_replace_all(aaSeqCDR3, c("[AIGLPV]" = "J", 
-                                                      "[FWY]" = "O", 
-                                                      "[DE]" = "U", 
-                                                      "[RHK]" = "B",
-                                                      "[ST]" = "X",
-                                                      "[CM]" = "Y",
-                                                      "[NQ]" = "Z"))) %>%
-  separate(aaSeqCDR3, into = c(letters[1:max(.$CDR3_length)]), sep = c(1:max(.$CDR3_length)), remove = F) %>%
-  separate(residue_group, into = c(LETTERS[1:max(.$CDR3_length)]), sep = c(1:max(.$CDR3_length)), remove = F)
-
-for (j in match("A", names(residue_profile)):match(LETTERS[max(exp_group[[8]]$CDR3_length)], names(residue_profile))) {
-  residue_profile[,j] <- paste(residue_profile[,j], as.character(j - match("A", names(residue_profile)) + 1), sep = "")
-}
-
-raw_residue_vertex_list <- rep(list(NULL), times = max(exp_group[[8]]$CDR3_length))
-
-for (k in 1:max(exp_group[[8]]$CDR3_length)) {
-  raw_residue_vertex_list[[k]] <- residue_profile[,k + match("A", names(residue_profile)) - 1] %>%
-    as.data.frame(stringsAsFactors = F)
-}
-
-names(raw_residue_vertex_list) <- colnames(residue_profile)[ match("A", names(residue_profile)):match(LETTERS[max(exp_group[[8]]$CDR3_length)], names(residue_profile))]
-
-residue_vertex_list <- raw_residue_vertex_list %>%
-  bind_rows(.id = "id")
-
-names(residue_vertex_list) <- c("id", "residue")
-
-residue_vertex_list <-  residue_vertex_list %>%
-  group_by(residue) %>%
-  mutate(counts = n()) %>%
-  ungroup() %>%
-  distinct() %>%
-  separate(residue, into = c("colour", "position"), sep = 1, remove = F)
-
-residue_vertex_list <- residue_vertex_list[str_detect(residue_vertex_list$residue, "[:alpha:]+"),]
-
-residue_vertex_list <-  residue_vertex_list %>%
-  group_by(position) %>%
-  mutate(counts = (((counts - min(counts)) / (max(counts) - min(counts))) + 0.1) * 5) %>%
-  select(-id)
-
-residue_vertex_list$colour <-  if_else(residue_vertex_list$colour == "J", "Aliphatic", 
-                                       if_else(residue_vertex_list$colour == "O", "Aromatic",
-                                               if_else(residue_vertex_list$colour == "U", "Acidic", 
-                                                       if_else(residue_vertex_list$colour == "B", "Basic",
-                                                               if_else(residue_vertex_list$colour == "X", "Hydroxilic",
-                                                                       if_else(residue_vertex_list$colour == "Y", "Sulfuric",
-                                                                               "Amidic"))))))
-
-residue_vertex_list$colour <- factor(residue_vertex_list$colour)
-
-residue_vertex_list$counts[is.nan(residue_vertex_list$counts)] <- 5.5
-
-residue_edge_list <- rep(list(NULL), times = (max(exp_group[[8]]$CDR3_length) - 1))
-
-for (l in 1:(max(exp_group[[8]]$CDR3_length) - 1)) {
-  residue_edge_list[[l]] <- table(residue_profile[, l + match("A", names(residue_profile)) - 1], residue_profile[,l + match("A", names(residue_profile))]) %>%
-    as.data.frame(stringsAsFactors = F) %>%
-    melt() %>%
-    filter(value != 0) %>%
-    select(-variable)
-}
-
-residue_edge_list <- residue_edge_list %>%
-  bind_rows()
-
-residue_edge_list <- residue_edge_list[str_detect(residue_edge_list$Var1, "[A-Z]+"),]
-
-residue_edge_list <- residue_edge_list[str_detect(residue_edge_list$Var2, "[A-Z]+"),]
-
-residue_edge_list <- residue_edge_list %>%
-  separate(Var1, into = c("colour", "position"), sep = 1, remove = F) %>%
-  group_by(position) %>%
-  mutate(weight = (((value - min(value)) / (max(value) - min(value))) + 0.1) * 5) %>%
-  ungroup() %>%
-  select(Var1, Var2, weight, position, value)
-
-residue_edge_list$weight[is.nan(residue_edge_list$weight)] <- 5.5
-
-residue_edge_list$edge_colour <- if_else(residue_edge_list$weight == 5.5, residue_edge_list$edge_colour <- 2, residue_edge_list$edge_colour <- 1)
-
-residue_edge_list$edge_size <- if_else(residue_edge_list$weight == 5.5, residue_edge_list$edge_size <- 2, residue_edge_list$edge_size <- 0.25)
-
-residue_edge_list <- residue_edge_list %>%
-  filter(weight >= 1)
-
-joined_nodes <- c(residue_edge_list$Var1, residue_edge_list$Var2) %>%
-  as.data.frame(stringsAsFactors = F) %>%
-  distinct()
-
-residue_vertex_list <- residue_vertex_list %>%
-  right_join(joined_nodes, by = c("residue" = "."))
-
-graph <- residue_edge_list %>%
-  graph_from_data_frame(vertices = residue_vertex_list)
-
-ggnet2(graph, node.size = V(graph)$counts,
-       arrow.size = 5,
-       node.color = V(graph)$colour,
-       color.palette = "Set3",
-       edge.size = E(graph)$edge_size,
-       edge.color = E(graph)$edge_colour,
-       arrow.gap = 0.02) +
-  guides(size = "none")
 
 #####
 # Negative control finding function
