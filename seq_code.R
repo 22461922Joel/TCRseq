@@ -203,6 +203,63 @@ data_aa <- function(data) {
 
 
 #####
+#####
+# circos plots
+#####
+
+library(circlize)
+
+# make adjacency list out of V J genes and CDR3 usage between them
+
+circos_function <- function(data_f, mouse) {
+  adj_list <- data_f %>%
+    filter(exp == mouse) %>%
+    group_by(v_gene, j_gene) %>%
+    summarise(value = sum(PID.fraction))
+  
+  names(adj_list) <- c("from", "to", "value")
+  
+  chordDiagram(adj_list, annotationTrack = "grid", 
+               preAllocateTracks = list(track.height = max(strwidth(unlist(dimnames(adj_list))))))
+  
+  circos.track(track.index = 1, panel.fun = function(x, y) {
+    circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index, 
+                facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+  }, bg.border = NA)
+}
+
+circos_function(data, "001-RS-1")
+
+unique(data$exp)
+
+adj_list <- data %>%
+  filter(exp == "018-NR-4") %>%
+  group_by(v_gene, j_gene) %>%
+  summarise(value = sum(PID.fraction)) %>%
+  filter(value > 0.001)
+
+v_gene_vector <- vector()
+
+for (i in 1:31) {
+  v_gene_vector[i] <- paste("TRBV", i, sep = "")
+}
+
+adj_list$v_gene <- factor(adj_list$v_gene, levels = v_gene_vector)
+
+adj_list <- adj_list %>%
+  arrange(v_gene)
+
+names(adj_list) <- c("from", "to", "value")
+
+chordDiagram(adj_list, annotationTrack = "grid", 
+             preAllocateTracks = list(track.height = max(strwidth(unlist(dimnames(adj_list))))))
+
+circos.track(track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index, 
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA)
+
+#####
 # phylgenic tree
 #####
 
@@ -1068,7 +1125,7 @@ CDR3_network <- function(df, tp, rs) {
   
   names(graph_components_short) <- cluster_values$rowname_char
   
-  warm = rainbow(50, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
+  warm = rainbow(62, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
   mypalette <- colorRampPalette(warm)(length(unique(setdiff_temp$n_compartments)))
   
   names(mypalette) <- unique(setdiff_temp$n_compartments)
@@ -1111,7 +1168,7 @@ CDR3_network(exp_clean_only_aa, "6", "NR") # example input to function
 
 # function breakdown for trouble shooting
 
-setdiff_temp <- exp_clean_only_aa %>%
+setdiff_temp <- aa_data %>%
   filter(timepoint == "0", response == "NR") %>%
   group_by(aaSeqCDR3) %>%
   summarise(n_compartments = n_distinct(tpmouse))
@@ -1184,10 +1241,14 @@ graph_components_short <- graph_components[cluster_values$rowname]
 
 names(graph_components_short) <- cluster_values$rowname_char
 
-warm = rainbow(50, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
+warm = rainbow(62, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
 mypalette <- colorRampPalette(warm)(length(unique(setdiff_temp$n_compartments)))
 
-names(mypalette) <- unique(setdiff_temp$n_compartments)
+names(mypalette) <- setdiff_temp %>%
+  select(n_compartments) %>%
+  distinct() %>%
+  arrange(n_compartments) %>%
+  .$n_compartments
 
 my_pal <- list()
 
@@ -1202,13 +1263,15 @@ sub_graphing <- function(g, pal) {
                       palette = pal,
                       color.palette = pal) +
                theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
-                     legend.position = "none"))
+                     legend.position = "none", 
+                     plot.background = element_rect(fill = "gray")))
 }
 
 graph_graphs <- map2(graph_components_short, my_pal, sub_graphing)
 
 names(graph_graphs) <- 1:length(graph_graphs)
 
+graph_graphs_order <- graph_graphs[cluster_values$rowname_char]
 
 annotation_list <- list(grob = graph_graphs,
                         xmin = tree_lay$x0,
@@ -1218,7 +1281,7 @@ annotation_list <- list(grob = graph_graphs,
 
 annotation_list <- pmap(annotation_list, annotation_custom)
 
-grid.arrange(ggplot() + annotation_list + labs(title = paste(c("timepoint ", "0", " ", "NR"), collapse = "")))
+grid.arrange(ggplot() + annotation_list + labs(title = paste(c("timepoint ", "0", " ", "non-responders"), collapse = "")))
 #####
 # CDR3 network graph statistics
 #####

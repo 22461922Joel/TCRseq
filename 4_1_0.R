@@ -111,10 +111,27 @@ for (j in 1:24) {
     filter(!str_length(CDR3) > 20) %>%
     filter(!str_length(CDR3) < 8) %>%
     distinct()
+  
+  comp_temp1[[j]]$`Subject Id` <- comp_temp1[[j]]$`Subject Id` %>%
+    str_replace("_", ".") %>%
+    str_replace("-", ".") %>%
+    str_replace("_PCR2_1_", "_1.") %>%
+    str_replace("PCR2_1_", "_1.") %>%
+    str_replace("-", "_") %>%
+    str_replace("-", ".") %>%
+    str_replace("LT", "T_L") %>%
+    str_replace("RT", "T_R") %>%
+    str_replace("L4", "T_L_CD4") %>%
+    str_replace("L8", "T_L_CD8") %>%
+    str_replace("R4", "T_R_CD4") %>%
+    str_replace("R8", "T_R_CD8") %>%
+    str_replace("0T", "0_T") %>%
+    str_replace("2T", "2_T") %>%
+    str_replace("3T", "3_T") %>%
+    str_replace_all("-", "_") %>%
+    str_remove("mTCR ")
     
 }
-
-str_length(comp_temp1[[1]]$PID) %>% unique()
 
 map_list <- list()
 
@@ -129,26 +146,28 @@ for (i in 1:length(comp_temp1)) {
 
 map_list <- map_list %>%
   bind_rows()
+ 
+ map_list_x <- list()
+ 
+for (i in 1:length(comp_temp1)) {
+   map_list_x[[i]] <- comp_temp1[1:length(comp_temp1) != i] %>%
+     reduce(left_join, by = c("CDR3", "PID"), .init = comp_temp1[[i]])
+   # 
+   # map_list_x[[i]] <- map_list_x[[i]] %>%
+   #   group_by(CDR3, `Subject Id`) %>%
+   #   summarise(PID.count = n_distinct(PID))
+}
+ 
+map_list_x <- map_list_x %>%
+   bind_rows()%>%
+   unite("mice", starts_with("Subject"), sep = "-", remove = T) %>%
+   mutate(n_mice = str_count(mice, "_[\\d].[\\d]_"))
+ 
+unique(map_list_x$mice)
 
- map_list$`Subject Id` <- map_list$`Subject Id` %>%
-   str_replace("_", ".") %>%
-   str_replace("-", ".") %>%
-   str_replace("_PCR2_1_", "_1.") %>%
-   str_replace("PCR2_1_", "_1.") %>%
-   str_replace("-", "_") %>%
-   str_replace("-", ".") %>%
-   str_replace("LT", "T_L") %>%
-   str_replace("RT", "T_R") %>%
-   str_replace("L4", "T_L_CD4") %>%
-   str_replace("L8", "T_L_CD8") %>%
-   str_replace("R4", "T_R_CD4") %>%
-   str_replace("R8", "T_R_CD8") %>%
-   str_replace("0T", "0_T") %>%
-   str_replace("2T", "2_T") %>%
-   str_replace("3T", "3_T") %>%
-   str_replace_all("-", "_") %>%
-   str_remove("mTCR ")
-
+map_temp <- map_list_x %>%
+  select(-mice) %>%
+  distinct()
    
 jk41_t <- jk41 %>%
   full_join(map_list, by = c("aaSeqCDR3" = "CDR3", "exp" = "Subject Id")) %>%
@@ -160,9 +179,51 @@ jk41_t <- jk41 %>%
          PID.count_difference = PID.count_sum - PID.count,
          PID.count_difference = scale(PID.count_difference)) %>%
   ungroup() %>%
-  mutate(total_transcripts = sum(PID.count_sum)) %>%
   group_by(aaSeqCDR3) %>%
-  mutate(overlap_prob = sum(PID.count_sum) / (total_transcripts * 4**9))
+  mutate(n_identical = sum(PID.count_sum),
+         n_identical_corrected = sum(PID.count),
+         overlap_prob = gam_prob(n_identical),
+         overlap_prob_corrected = gam_prob(n_identical_corrected))
+
+gam_prob <- function(x) {
+  1 - exp(lgamma(4**9 + 1) - lgamma(4**9 - x + 1) - x * log(4**9))
+}
+
+poisson_prob <- function(x) {
+  1 - exp(-CombN(x = x, m = 100)/(4**9)**2)
+}
+
+1-exp(-CombN(1:30, m = 3)/365**2)
+
+poisson_prob(map_temp$PID[map_temp$CDR3 == "CASGETGTNERLFF"])
+
+CombN(map_temp$PID[map_temp$CDR3 == "CASGETGTNERLFF"], m = 2)
+
+jk41_temp <- jk41_t %>%
+  select(aaSeqCDR3, overlap_prob) %>%
+  distinct()
+
+jk41_gamma <- jk41_temp %>%
+  full_join(map_temp, by = c("aaSeqCDR3" = "CDR3")) %>%
+  group_by(aaSeqCDR3, overlap_prob) %>%
+  summarise(PID.count = n_distinct(PID))
+
+gamma_df <- data.frame(PID.count = seq(from = min(jk41_gamma$PID.count), to = 4500, by = 100)) %>%
+  mutate(overlap_prob = gam_prob(PID.count),
+         aaSeqCDR3 = "model") %>%
+  bind_rows(jk41_gamma)
+
+gamma_df
+  
+
+ggplot(gamma_df, aes(y = overlap_prob, x = PID.count, colour = aaSeqCDR3)) +
+  geom_point() +
+  scale_x_log10(limits = c(1, 2000)) +
+  theme(legend.position = "none")
+
+ggplot(jk41_t, aes(n_identical_corrected, overlap_prob_corrected)) +
+  geom_point() +
+  scale_x_log10()
 
 top_discord <- jk41_t %>%
   filter(PID.count_difference > 2)
@@ -185,6 +246,6 @@ ggplot(jk41_t, aes(PID.count_sum, PID.count, colour = cut(PID.count_difference, 
   scale_y_log10() +
   scale_x_log10() +
   geom_abline(slope = 1, intercept = 0) +
-  labs(colour = "Z score")
+  labs(colour = "Z score", y = "PID counts with no identical PID/RNA combinations", x = "PID counts")
 
 #####

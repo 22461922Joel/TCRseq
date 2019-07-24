@@ -13,6 +13,16 @@ data <- read.csv("cleaned_CDR3s.csv", stringsAsFactors = F)
 #  
 #  write.csv(data, "cleaned_CDR3s.csv")
 
+data_individual <- data %>%
+  group_by(exp) %>%
+  group_split()
+
+setwd("D://data//experiments//RNAseq//data_individual")
+
+for (i in 1:length(data_individual)) {
+  write.csv(data_individual[[i]], paste(unique(data_individual[[i]]$exp), ".csv", sep = ""))
+}
+
 neg_RENCA <- PID_control("D://data//experiments//RNAseq//1239Shp15b_Joost_final")
 
 factor_separator <- function(data) {
@@ -71,6 +81,10 @@ ggplot(summary, aes(evenness, richness, colour = response)) +
 #####
 #network statistics
 #####
+
+CDR3_network(aa_data, "0", "RS")
+
+CDR3_network(aa_data, "0", "NR")
 
 aa_graphs <- list()
 
