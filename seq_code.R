@@ -71,17 +71,13 @@ clean_data <- function(directory) {
            -cloneId,
            -Subject.id) %>%
     mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
-    separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = ",") %>%
-    separate(v_gene, c("v_gene", NA), sep = "\\(") %>%
-    tidyr::extract(v_gene, into = c("removeV", "v_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-    separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = ",") %>%
-    separate(j_gene, c("j_gene", NA), sep = "\\(") %>%
-    tidyr::extract(j_gene, into = c("removeJ", "j_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-    separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = ",") %>%
-    separate(d_gene, c("d_gene", NA), sep = "\\(") %>%
-    tidyr::extract(d_gene, into = c("removeD", "d_gene"), regex = "([:lower:])([:alnum:]+)") %>%
-    select(-starts_with("remove"),
-           -starts_with("potential"))
+    separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = "\\*") %>%
+    separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = "\\*") %>%
+    separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = "\\*") %>%
+    select(-starts_with("potential")) %>%
+    mutate(v_gene = str_remove(v_gene, "m"),
+           d_gene = str_remove(d_gene, "m"),
+           j_gene = str_remove(j_gene, "m"))
   
   
   exp$exp <- str_remove(exp$exp, "mTCR ") %>%
@@ -110,6 +106,39 @@ clean_data <- function(directory) {
   
   write.csv(exp_clean, "cleaned_CDR3s.csv", row.names = F)
 }
+
+setwd("D://data//experiments//RNAseq//1239Shp15b_Joost_final//PID\ summary")
+
+names_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
+  str_remove(" miXCR clones with PID read cutoff 1.tsv")
+
+raw_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
+  map(read.delim, stringsAsFactors = F)
+
+names(raw_exp) <- names_exp
+
+exp <- bind_rows(raw_exp, .id = "exp") %>%
+  select(-ends_with("R1"), 
+         -ends_with("R2"), 
+         -ends_with("R4"), 
+         -refPoints, 
+         -ends_with("FR3"),
+         -ends_with("ments"),
+         -minQualCDR3,
+         -clonalSequenceQuality,
+         -allCHitsWithScore,
+         -clonalSequence, 
+         -Well,
+         -cloneId,
+         -Subject.id) %>%
+  mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
+  separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = "\\*") %>%
+  separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = "\\*") %>%
+  separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = "\\*") %>%
+  select(-starts_with("potential")) %>%
+  mutate(v_gene = str_remove(v_gene, "m"),
+         d_gene = str_remove(d_gene, "m"),
+         j_gene = str_remove(j_gene, "m"))
 
 #####
 # factor extractor

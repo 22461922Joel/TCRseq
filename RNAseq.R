@@ -10,7 +10,7 @@ data <- read.csv("cleaned_CDR3s.csv", stringsAsFactors = F)
 #    str_replace_all("630-NR", "630-NR-6") %>%
 #    str_replace_all("633-RS", "633-RS-7") %>%
 #    str_replace_all("640-RS", "640-RS-8")
-#  
+# 
 #  write.csv(data, "cleaned_CDR3s.csv")
 
 data_individual <- data %>%
