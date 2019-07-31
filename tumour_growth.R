@@ -5,24 +5,30 @@ library(grDevices)
 library(RColorBrewer)
 library(tidyverse)
 
-tumour_growth <- function(directory) {
-  
-  columns <- c("numeric", 
-               "numeric",
-               rep("skip", times = 3), 
-               "text", 
-               "numeric", 
-               rep("skip", times = 10), 
-               "numeric", 
-               "numeric",
-               rep("skip", times = 6),
-               "numeric",
-               rep("skip", times = 12),
-               "numeric",
-               "numeric",
-               rep("skip", times = 5),
-               "text")
-  
+# tumour growth function expects a directory containing an .xls 
+# spreadsheet from the export list version history tab from sharepoint.
+# You will need to make a columns vector with the titles of the .xls spreadsheet that are produced
+# by that specific AE number.
+
+
+
+AE101_columns <- c("numeric", 
+                   "numeric",
+                   rep("skip", times = 3), 
+                   "text", 
+                   "numeric", 
+                   rep("skip", times = 10), 
+                   "numeric", 
+                   "numeric",
+                   rep("skip", times = 6),
+                   "numeric",
+                   rep("skip", times = 12),
+                   "numeric",
+                   "numeric",
+                   rep("skip", times = 5),
+                   "text")
+
+dual_tumour_growth <- function(directory, columns) {
   
   setwd(directory) 
   
@@ -107,21 +113,40 @@ tumour_growth <- function(directory) {
   grid.arrange(arrangeGrob(L, R, layout_matrix = lay))
 }
 
-columns <- c("numeric", 
-             "numeric",
-             rep("skip", times = 3), 
-             "text", 
-             "numeric", 
-             rep("skip", times = 10), 
-             "numeric", 
-             "numeric",
-             rep("skip", times = 6),
-             "numeric",
-             rep("skip", times = 12),
-             "numeric",
-             "numeric",
-             rep("skip", times = 5),
-             "text")
+single_tumour_growth <- function(directory, columns) {
+  setwd(directory) 
+  
+  tg <- dir()[1] %>% 
+    read_xls(col_types = columns) %>%
+    fill(`Item ID`) %>%
+    filter(!is.na(`Version No.`)) %>%
+    group_by(`Item ID`) %>%
+    fill(`Animal ID`, Box, `Expt ID`, .direction = "up") %>%
+    filter(!is.na(`Expt ID`)) %>%
+    unite("mouse", Box, `Animal ID`, sep = ".") %>%
+    group_by(mouse) %>%
+    fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, `days (tumour)`, .direction = "up") %>%
+    filter(!is.na(`R Tumour L`)) %>%
+    group_by(`days (tumour)`, mouse) %>%
+    mutate(`R Tumour L` = `R Tumour L`[match(max(`Version No.`), `Version No.`)],
+           `R Tumour W` = `R Tumour W`[match(max(`Version No.`), `Version No.`)],
+           `L Tumour L` = `L Tumour L`[match(max(`Version No.`), `Version No.`)],
+           `L Tumour W` = `L Tumour W`[match(max(`Version No.`), `Version No.`)]) %>%
+    select(-`Version No.`) %>%
+    distinct() %>%
+    mutate(L_Tumour_size = `L Tumour W` * `L Tumour L`, 
+           R_Tumour_size = `R Tumour W` * `R Tumour L`) %>%
+    drop_na() %>%
+    mutate(diff_size = ((L_Tumour_size - R_Tumour_size) / (L_Tumour_size + R_Tumour_size))) %>%
+    gather(key = "flank", value = "tumour_size", L_Tumour_size, R_Tumour_size) %>%
+    mutate(log_tumour_size = log(tumour_size)) %>%
+    unite("mouse_flank", mouse, flank, remove = F)
+  
+  
+  tg$`days (tumour)` <- str_remove(tg$`days (tumour)`, "float;#") %>% as.numeric()
+  tg$diff_size[is.na(tg$diff_size)] <- 0
+}
+
 
 setwd("D://mice_experiments//4_1_0//tumour_growth") #`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, 
 

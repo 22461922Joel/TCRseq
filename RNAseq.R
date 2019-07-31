@@ -43,7 +43,7 @@ PID <- PID_control("D://data//experiments//RNAseq//1239Shp15b_Joost_final//PID\ 
 # 
 # summary_TCRseq(data = data)
 
-summary <- read.csv("summary.csv", stringsAsFactors = F, row.names = NULL) %>%
+summary <- read.csv("summary_.csv", stringsAsFactors = F, row.names = NULL) %>%
   factor_separator() %>%
   select(-X)
 
@@ -66,6 +66,7 @@ ggplot(summary, aes(timepoint, diversity, fill = response)) +
   geom_boxplot(outlier.shape = NA) +
   stat_compare_means(aes(group = response), label = "p.signif") +
   geom_point(position = position_jitterdodge(jitter.width = 0.1)) +
+  theme(axis.line = element_line()) +
   response_fill_scale
 
 ggplot(summary, aes(evenness, richness, colour = response)) +
@@ -74,7 +75,7 @@ ggplot(summary, aes(evenness, richness, colour = response)) +
   scale_x_log10(breaks = seq(from = 0, to = max(summary$evenness), by = 25000)) +
   facet_grid(. ~ timepoint) +
   labs(y = "unique clones", x = "total clones") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), axis.line = element_line()) +
   response_colour_scale
 
 

@@ -873,23 +873,11 @@ mouse_CDR3_network <- function(df) {
     dplyr::arrange(n_mice) %>%
     mutate(n_mice = as.character(n_mice))
   
-  setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
-    as_tibble()
-  
-  colnames(setdiff) <- setdiff_temp$aaSeqCDR3
-  
-  setdiff$aa.x <- setdiff_temp$aaSeqCDR3
-  
-  graph <- setdiff %>%
-    gather("aa.y", "lv", -aa.x) %>%
-    filter(lv == 1) %>% # set lv distance
-    unite("temp1", aa.x, aa.y, remove = F) %>%
-    mutate(temp2 = pmin(aa.x, aa.y),
-           temp3 = pmax(aa.x, aa.y)) %>%
-    unite("temp2", temp2, temp3, sep = "_") %>%
-    filter(temp1 != temp2) %>%
-    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-    select(-starts_with("temp"), -n_mice, -lv) %>%
+  graph <- data.frame(CombSet(setdiff_temp$aaSeqCDR3, m = 2), 
+                      lv = stringdistmatrix(setdiff_temp$aaSeqCDR3) %>%
+                        as.vector()) %>%
+    filter(lv == 1) %>%
+    select(-lv) %>%
     graph_from_data_frame(directed = F, vertices = setdiff_temp)
   
   cluster_values <- clusters(graph)$csize %>%
@@ -934,9 +922,9 @@ mouse_CDR3_network <- function(df) {
                         color = "n_mice",
                         palette = pal,
                         color.palette = pal) +
-                 theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
+                 theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),
                        legend.position = "none",
-                       plot.background = element_rect(colour = "black")))
+                       plot.background = element_rect(fill = "gray")))
   }
   
   graph_graphs <- map2(graph_components_short, my_pal, sub_graphing)
@@ -951,123 +939,28 @@ mouse_CDR3_network <- function(df) {
   
   annotation_list <- pmap(annotation_list, annotation_custom)
   
-  grid.arrange(ggplot() + annotation_list + labs(title = paste(c("mouse ", unique(setdiff_temp$tpmouse), " ", unique(setdiff_temp$response)), collapse = "")))
+  grid.arrange(ggplot() + ggpubr::theme_transparent() + 
+                 annotation_list + 
+                 labs(title = paste(c("mouse ", unique(setdiff_temp$tpmouse), " ", unique(setdiff_temp$response)), collapse = "")))
 }
+
+mouse_CDR3_network(aa_list[[1]])
 
 mouse_CDR3_graph <- function(df) {
   setdiff_temp <- df %>%
-    arrange(n_mice) %>%
+    dplyr::arrange(n_mice) %>%
     mutate(n_mice = as.character(n_mice))
   
-  setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
-    as_tibble()
-  
-  colnames(setdiff) <- setdiff_temp$aaSeqCDR3
-  
-  setdiff$aa.x <- setdiff_temp$aaSeqCDR3
-  
-  graph <- setdiff %>%
-    gather("aa.y", "lv", -aa.x) %>%
-    filter(lv == 1) %>% # set lv distance
-    unite("temp1", aa.x, aa.y, remove = F) %>%
-    mutate(temp2 = pmin(aa.x, aa.y),
-           temp3 = pmax(aa.x, aa.y)) %>%
-    unite("temp2", temp2, temp3, sep = "_") %>%
-    filter(temp1 != temp2) %>%
-    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-    select(-starts_with("temp"), -n_mice, -lv) %>%
+  graph <- data.frame(CombSet(setdiff_temp$aaSeqCDR3, m = 2), 
+                      lv = stringdistmatrix(setdiff_temp$aaSeqCDR3) %>%
+                        as.vector()) %>%
+    filter(lv == 1) %>%
+    select(-lv) %>%
     graph_from_data_frame(directed = F, vertices = setdiff_temp)
 }
 
 
 
-
-#####
-
-setdiff_temp <- aa_data %>%
-  filter(timepoint == "0" & response == "RS") %>%
-  group_by(aaSeqCDR3) %>%
-  mutate(n_clones = n())
-
-test_df <- data.frame(CombSet(setdiff_temp$aaSeqCDR3, m = 2), 
-                      lv = stringdistmatrix(setdiff_temp$aaSeqCDR3) %>%
-                        as.vector()) %>%
-  filter(lv == 1)
-
-
-
-graph <- test_df %>%
-  graph_from_data_frame(directed = F, vertices = setdiff_temp)
-
-cluster_values <- clusters(graph)$csize %>%
-  as.data.frame() %>%
-  rownames_to_column() %>%
-  arrange(desc(`.`)) %>%
-  mutate(rowname_char = as.character(rowname)) %>%
-  select(rowname, rowname_char, lay_x = '.') %>%
-  filter(lay_x > 2)
-
-cluster_values$rowname <- as.numeric(cluster_values$rowname)
-
-tree_lay <- treemap(cluster_values, 
-                    index = c("rowname_char"), 
-                    vSize = c("lay_x"),
-                    algorithm = "squarified",
-                    draw = F)$tm %>%
-  arrange(desc(vSize))
-
-graph_components <- decompose.graph(graph)
-
-graph_components_short <- graph_components[cluster_values$rowname]
-
-names(graph_components_short) <- cluster_values$rowname_char
-
-warm = rainbow(50, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
-mypalette <- colorRampPalette(warm)(length(unique(setdiff_temp$n_mice)))
-
-names(mypalette) <- unique(setdiff_temp$n_mice)
-
-my_pal <- list()
-
-for (col in 1:length(cluster_values$rowname)) {
-  my_pal[[col]] <- mypalette[V(graph_components_short[[cluster_values$rowname_char[col]]])$n_mice]
-}
-
-sub_graphing <- function(g, pal) {
-  ggplotGrob(g %>%
-               ggnet2(node.size = "PID.fraction_sum",
-                      color = "n_mice",
-                      palette = pal,
-                      color.palette = pal) +
-               theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
-                     legend.position = "none", 
-                     plot.background = element_rect(fill = "black")))
-}
-
-graph_components_short[[1]] %>%
-  ggnet2(node.size = "PID.fraction_sum",
-         color = "n_mice",
-         palette = my_pal[[1]],
-         color.palette = my_pal[[1]]) +
-  theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
-        legend.position = "none", 
-        plot.background = element_rect(fill = "black"))
-
-graph_graphs <- map2(graph_components_short, my_pal, sub_graphing)
-
-names(graph_graphs) <- cluster_values$rowname_char
-
-graph_graphs_order <- graph_graphs[cluster_values$rowname_char]
-
-annotation_list <- list(grob = graph_graphs,
-                        xmin = tree_lay$x0,
-                        xmax = tree_lay$w + tree_lay$x0,
-                        ymin = tree_lay$y0,
-                        ymax = tree_lay$h + tree_lay$y0)
-
-annotation_list <- pmap(annotation_list, annotation_custom)
-
-grid.arrange(ggplot() + annotation_list + labs(title = paste(c("mouse ", "003", " ", "RS"), collapse = "")))
 
 #####
 
@@ -1077,50 +970,12 @@ CDR3_network <- function(df, tp, rs) {
     group_by(aaSeqCDR3) %>%
     summarise(n_compartments = n_distinct(tpmouse))
   
-  setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
-    as_tibble()
-  
-  colnames(setdiff) <- setdiff_temp$aaSeqCDR3
-  
-  setdiff$aa.x <- setdiff_temp$aaSeqCDR3
-  
-  vert.x <- setdiff %>%
-    gather("aa.y", "lv", -aa.x) %>%
-    filter(lv == 1) %>% # set lv distance
-    unite("temp1", aa.x, aa.y, remove = F) %>%
-    mutate(temp2 = pmin(aa.x, aa.y),
-           temp3 = pmax(aa.x, aa.y)) %>%
-    unite("temp2", temp2, temp3, sep = "_") %>%
-    filter(temp1 != temp2) %>%
-    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-    select("aa" = aa.x, n_compartments)
-  
-  vert.y <- setdiff %>%
-    gather("aa.y", "lv", -aa.x) %>%
-    filter(lv == 1) %>% # set lv distance
-    unite("temp1", aa.x, aa.y, remove = F) %>%
-    mutate(temp2 = pmin(aa.x, aa.y),
-           temp3 = pmax(aa.x, aa.y)) %>%
-    unite("temp2", temp2, temp3, sep = "_") %>%
-    filter(temp1 != temp2) %>%
-    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-    select("aa" = aa.y, n_compartments)
-  
-  vert <- bind_rows(vert.x, vert.y) %>%
-    group_by(aa) %>%
-    summarise(n_compartments = max(n_compartments))
-  
-  graph <- setdiff %>%
-    gather("aa.y", "lv", -aa.x) %>%
-    filter(lv == 1) %>% # set lv distance
-    unite("temp1", aa.x, aa.y, remove = F) %>%
-    mutate(temp2 = pmin(aa.x, aa.y),
-           temp3 = pmax(aa.x, aa.y)) %>%
-    unite("temp2", temp2, temp3, sep = "_") %>%
-    filter(temp1 != temp2) %>%
-    left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-    select(-starts_with("temp"), -n_compartments, -lv) %>%
-    graph_from_data_frame(directed = F, vertices = vert)
+  graph <- data.frame(CombSet(setdiff_temp$aaSeqCDR3, m = 2), 
+                      lv = stringdistmatrix(setdiff_temp$aaSeqCDR3) %>%
+                        as.vector()) %>%
+    filter(lv == 1) %>%
+    select(-lv) %>%
+    graph_from_data_frame(directed = F, vertices = setdiff_temp)
   
   cluster_values <- clusters(graph)$csize %>%
     as.data.frame() %>%
@@ -1184,124 +1039,8 @@ CDR3_network <- function(df, tp, rs) {
   grid.arrange(ggplot() + annotation_list + labs(title = paste(c("timepoint ", tp, " ", rs), collapse = "")))
 }
 
-CDR3_network(exp_clean_only_aa, "6", "NR") # example input to function
+CDR3_network(aa_data, "6", "NR") # example input to function
 
-# function breakdown for trouble shooting
-
-setdiff_temp <- aa_data %>%
-  filter(timepoint == "0", response == "NR") %>%
-  group_by(aaSeqCDR3) %>%
-  summarise(n_compartments = n_distinct(tpmouse))
-
-setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
-  as_tibble()
-
-colnames(setdiff) <- setdiff_temp$aaSeqCDR3
-
-setdiff$aa.x <- setdiff_temp$aaSeqCDR3
-
-vert.x <- setdiff %>%
-  gather("aa.y", "lv", -aa.x) %>%
-  filter(lv == 1) %>% # set lv distance
-  unite("temp1", aa.x, aa.y, remove = F) %>%
-  mutate(temp2 = pmin(aa.x, aa.y),
-         temp3 = pmax(aa.x, aa.y)) %>%
-  unite("temp2", temp2, temp3, sep = "_") %>%
-  filter(temp1 != temp2) %>%
-  left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-  select("aa" = aa.x, n_compartments)
-
-vert.y <- setdiff %>%
-  gather("aa.y", "lv", -aa.x) %>%
-  filter(lv == 1) %>% # set lv distance
-  unite("temp1", aa.x, aa.y, remove = F) %>%
-  mutate(temp2 = pmin(aa.x, aa.y),
-         temp3 = pmax(aa.x, aa.y)) %>%
-  unite("temp2", temp2, temp3, sep = "_") %>%
-  filter(temp1 != temp2) %>%
-  left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-  select("aa" = aa.y, n_compartments)
-
-vert <- bind_rows(vert.x, vert.y) %>%
-  group_by(aa) %>%
-  summarise(n_compartments = max(n_compartments))
-
-graph <- setdiff %>%
-  gather("aa.y", "lv", -aa.x) %>%
-  filter(lv == 1) %>% # set lv distance
-  unite("temp1", aa.x, aa.y, remove = F) %>%
-  mutate(temp2 = pmin(aa.x, aa.y),
-         temp3 = pmax(aa.x, aa.y)) %>%
-  unite("temp2", temp2, temp3, sep = "_") %>%
-  filter(temp1 != temp2) %>%
-  left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-  select(-starts_with("temp"), -n_compartments, -lv) %>%
-  graph_from_data_frame(directed = F, vertices = vert)
-
-cluster_values <- clusters(graph)$csize %>%
-  as.data.frame() %>%
-  rownames_to_column() %>%
-  arrange(desc(`.`)) %>%
-  mutate(rowname_char = as.character(rowname)) %>%
-  select(rowname, rowname_char, lay_x = '.') %>%
-  filter(lay_x > 3)
-
-cluster_values$rowname <- as.numeric(cluster_values$rowname)
-
-tree_lay <- treemap(cluster_values, 
-                    index = c("rowname_char"), 
-                    vSize = c("lay_x"),
-                    algorithm = "squarified",
-                    draw = F)$tm %>%
-  arrange(desc(vSize))
-
-graph_components <- decompose.graph(graph)
-
-graph_components_short <- graph_components[cluster_values$rowname]
-
-names(graph_components_short) <- cluster_values$rowname_char
-
-warm = rainbow(62, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('yellow'))[1])
-mypalette <- colorRampPalette(warm)(length(unique(setdiff_temp$n_compartments)))
-
-names(mypalette) <- setdiff_temp %>%
-  select(n_compartments) %>%
-  distinct() %>%
-  arrange(n_compartments) %>%
-  .$n_compartments
-
-my_pal <- list()
-
-for (col in 1:length(cluster_values$rowname)) {
-  my_pal[[col]] <- mypalette[V(graph_components_short[[cluster_values$rowname_char[col]]])$n_compartments]
-}
-
-sub_graphing <- function(g, pal) {
-  ggplotGrob(g %>%
-               ggnet2(node.size = 2,
-                      color = "n_compartments",
-                      palette = pal,
-                      color.palette = pal) +
-               theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
-                     legend.position = "none", 
-                     plot.background = element_rect(fill = "gray")))
-}
-
-graph_graphs <- map2(graph_components_short, my_pal, sub_graphing)
-
-names(graph_graphs) <- 1:length(graph_graphs)
-
-graph_graphs_order <- graph_graphs[cluster_values$rowname_char]
-
-annotation_list <- list(grob = graph_graphs,
-                        xmin = tree_lay$x0,
-                        xmax = tree_lay$w + tree_lay$x0,
-                        ymin = tree_lay$y0,
-                        ymax = tree_lay$h + tree_lay$y0)
-
-annotation_list <- pmap(annotation_list, annotation_custom)
-
-grid.arrange(ggplot() + annotation_list + labs(title = paste(c("timepoint ", "0", " ", "non-responders"), collapse = "")))
 #####
 # CDR3 network graph statistics
 #####
