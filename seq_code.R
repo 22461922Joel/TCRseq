@@ -984,28 +984,19 @@ mouse_CDR3_graph <- function(df) {
 
 #####
 
-setdiff_temp <- exp_clean_only_aa[[1]] %>%
-  arrange(n_mice) %>%
-  mutate(n_mice = as.character(n_mice),
-         PID.fraction_sum = exp(PID.fraction_sum))
+setdiff_temp <- aa_data %>%
+  filter(timepoint == "0" & response == "RS") %>%
+  group_by(aaSeqCDR3) %>%
+  mutate(n_clones = n())
 
-setdiff <- stringdistmatrix(setdiff_temp$aaSeqCDR3, setdiff_temp$aaSeqCDR3) %>%
-  as_tibble()
+test_df <- data.frame(CombSet(setdiff_temp$aaSeqCDR3, m = 2), 
+                      lv = stringdistmatrix(setdiff_temp$aaSeqCDR3) %>%
+                        as.vector()) %>%
+  filter(lv == 1)
 
-colnames(setdiff) <- setdiff_temp$aaSeqCDR3
 
-setdiff$aa.x <- setdiff_temp$aaSeqCDR3
 
-graph <- setdiff %>%
-  gather("aa.y", "lv", -aa.x) %>%
-  filter(lv == 1) %>% # set lv distance
-  unite("temp1", aa.x, aa.y, remove = F) %>%
-  mutate(temp2 = pmin(aa.x, aa.y),
-         temp3 = pmax(aa.x, aa.y)) %>%
-  unite("temp2", temp2, temp3, sep = "_") %>%
-  filter(temp1 != temp2) %>%
-  left_join(setdiff_temp, by = c("aa.x" = "aaSeqCDR3")) %>%
-  select(-starts_with("temp"), -n_mice, -lv) %>%
+graph <- test_df %>%
   graph_from_data_frame(directed = F, vertices = setdiff_temp)
 
 cluster_values <- clusters(graph)$csize %>%
