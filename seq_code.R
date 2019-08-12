@@ -30,12 +30,16 @@ library(missMDA)
 # intersects
 library(DescTools)
 # standard
+library(broom)
 library(divo)
 library(readxl)
 library(tidyverse)
 library(lubridate)
 library(ggpubr)
 library(colorRamps)
+library(vegan)
+library(rlang)
+library(stringi)
 
 #####
 # data cleaning
@@ -80,9 +84,7 @@ clean_data <- function(directory) {
            j_gene = str_remove(j_gene, "m"))
   
   
-  exp$exp <- str_remove(exp$exp, "mTCR ") %>%
-    str_replace("_8", "_CD8") %>%
-    str_replace("_4", "_CD4")
+  exp$exp <- str_remove(exp$exp, "mTCR ")
   
   reject_vector <- str_detect(exp$aaSeqCDR3, "_") | 
     str_detect(exp$aaSeqCDR3, "\\*") | 
@@ -107,51 +109,18 @@ clean_data <- function(directory) {
   write.csv(exp_clean, "cleaned_CDR3s.csv", row.names = F)
 }
 
-setwd("D://data//experiments//RNAseq//1239Shp15b_Joost_final//PID\ summary")
-
-names_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
-  str_remove(" miXCR clones with PID read cutoff 1.tsv")
-
-raw_exp <- dir()[str_detect(dir(), " miXCR clones with PID read cutoff 1.tsv")] %>%
-  map(read.delim, stringsAsFactors = F)
-
-names(raw_exp) <- names_exp
-
-exp <- bind_rows(raw_exp, .id = "exp") %>%
-  select(-ends_with("R1"), 
-         -ends_with("R2"), 
-         -ends_with("R4"), 
-         -refPoints, 
-         -ends_with("FR3"),
-         -ends_with("ments"),
-         -minQualCDR3,
-         -clonalSequenceQuality,
-         -allCHitsWithScore,
-         -clonalSequence, 
-         -Well,
-         -cloneId,
-         -Subject.id) %>%
-  mutate(CDR3_length = str_length(aaSeqCDR3)) %>%
-  separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = "\\*") %>%
-  separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = "\\*") %>%
-  separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = "\\*") %>%
-  select(-starts_with("potential")) %>%
-  mutate(v_gene = str_remove(v_gene, "m"),
-         d_gene = str_remove(d_gene, "m"),
-         j_gene = str_remove(j_gene, "m"))
-
 #####
 # factor extractor
 #####
 
 # extracts exp column into the factors defined by the sort name or the name defined by IIID
+# define a "factors" vector before using this function. refer to factors in later functions to view them explicitely
+
+# example factors vector:
+# factors <- c("experiment", "mouse", "flank", "population")
 
 factor_extractor <- function(df) {
-  df %>% separate(exp, into = c("JKexp", 
-                                  "mouse", 
-                                  "tissue", 
-                                  "flank", 
-                                  "pop"), sep = "_", remove = F)
+  df %>% separate(exp, into = factors, sep = "_", remove = F)
 }
 
 factor_extractor_union <- function(data) {
@@ -328,6 +297,80 @@ ggdendrogram(hamming_clust) +
 #####
 # generate heat map and dendrograms with imputed values
 #####
+
+# refer to factors contained in the exp column from the IIID spreadsheet as in the factor extractor function.
+
+heatmap_dendrogram <- function(df, fact, fact_subset, grouping_factor) {
+  x_df <- df %>%
+    group_by(aaSeqCDR3) %>%
+    factor_extractor() %>%
+    filter(!! sym(fact) == fact_subset) %>%
+    filter(n() >= 3) %>%
+    mutate(Z_fraction = scale(PID.fraction_sum)) %>%
+    select(aaSeqCDR3, PID.fraction_sum, exp) %>%
+    spread(aaSeqCDR3, PID.fraction_sum)
+  
+  x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
+  
+  x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
+    as.data.frame()
+  
+  x_df_complete$exp <- x_df$exp
+  
+  x_df_complete <- x_df_complete %>%
+    gather("aaSeqCDR3", "PID.fraction_sum", -exp)
+  
+  x1 <- x_df_complete %>%
+    spread(aaSeqCDR3, PID.fraction_sum) %>%
+    column_to_rownames("exp") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  y1 <- x_df_complete %>%
+    spread(exp, PID.fraction_sum) %>%
+    column_to_rownames("aaSeqCDR3") %>%
+    dist() %>%
+    hclust(method = "complete") %>%
+    as.dendrogram()
+  
+  x_dend <- ggplotGrob(x1 %>%
+                         ggdendrogram() +
+                         theme_void())
+  
+  x_df_hm <- x_df_complete %>%
+    factor_extractor() %>%
+    mutate(exp = factor(exp, levels = dendro_data(x1)$labels$label),
+           aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+    distinct()
+  
+  x_df_hm$dummy <- 1
+  
+  x_rs <- ggplotGrob(x_df_hm %>%
+                       select(exp, dummy, !! sym(grouping_factor)) %>%
+                       distinct() %>%
+                       ggplot(aes(exp, dummy)) +
+                       geom_tile(aes(fill = !! sym(grouping_factor))) +
+                       theme_void() +
+                       scale_fill_discrete(guide = F))
+  
+  x_gg <- ggplotGrob(x_df_hm %>%
+                       ggplot(aes(exp, aaSeqCDR3)) +
+                       geom_tile(aes(fill = PID.fraction_sum)) +
+                       theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
+                       scale_fill_gradient2(name = "abundance"))
+  
+  panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+  
+  x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+  
+  x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+  
+  grid.newpage()
+  
+  grid.draw(x_gg)
+  
+}
 
 hd_timepoint <- function(df, tp) { 
   x_df <- df %>%

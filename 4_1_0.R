@@ -25,36 +25,42 @@ sort <- read.csv("sort_data.csv")
 #   str_replace_all("__", "_")
 # 
 # write.csv(sort, "sort_data.csv")
-
+# 
 # clean_data("D:/data/experiments/4_1_0/1239Shp14_Final MiXCR results/PID summary")
 # 
 # data <- read.csv("cleaned_CDR3s.csv")
 # 
 # data$exp <- data$exp %>%
-#   str_replace("_", ".") %>%
-#   str_replace("-", ".") %>%
-#   str_replace("_PCR2_1_", "_1.") %>%
-#   str_replace("-", "_") %>%
-#   str_replace("-", ".") %>%
-#   str_replace("LT", "T_L") %>%
-#   str_replace("RT", "T_R") %>%
-#   str_replace("L4", "T_L_CD4") %>%
-#   str_replace("L8", "T_L_CD8") %>%
-#   str_replace("R4", "T_R_CD4") %>%
-#   str_replace("R8", "T_R_CD8") %>%
-#   str_replace_all("-", "_")
+#    str_replace("_", ".") %>%
+#    str_replace("-", ".") %>%
+#    str_replace("_PCR2_1_", "_1.") %>%
+#    str_replace("-", "_") %>%
+#    str_replace("-", ".") %>%
+#    str_replace("LT", "T_L") %>%
+#    str_replace("RT", "T_R") %>%
+#    str_replace("L4", "T_L_CD4") %>%
+#    str_replace("L8", "T_L_CD8") %>%
+#    str_replace("R4", "T_R_CD4") %>%
+#    str_replace("R8", "T_R_CD8") %>%
+#    str_replace_all("-", "_")
 # 
-# write.csv(data, "cleaned_CDR3s.csv")
+# write.csv(data, "cleaned_CDR3s.csv", row.names = F)
 
 neg_4_1_0 <- PID_control("D://data//experiments//4_1_0//1239Shp14_Final MiXCR results")
 
-data <- read.csv("cleaned_CDR3s.csv")
+data <- read.csv("cleaned_CDR3s.csv", stringsAsFactors = F)
+
+data$exp %>% unique()
+
+factors <- c("jkexp", "mouse", "tissue", "flank", "population")
 
 summary_TCRseq(data)
 
 summary <- read.csv("summary_stats.csv")
 
-jk41 <- data_aa(data) %>% factor_extractor()
+jk41 <- data_aa(data)
+
+heatmap_dendrogram(jk41, "flank", "L")
 
 morisita_network(jk41, "CD4")
 
