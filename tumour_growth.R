@@ -7,64 +7,92 @@ library(tidyverse)
 
 # tumour growth function expects a directory containing an .xls 
 # spreadsheet from the export list version history tab from sharepoint.
-# You will need to make a columns vector with the titles of the .xls spreadsheet that are produced
-# by that specific AE number.
+# the function will try and guess the right columns to include in the tumoumr growth.
+# odd or duplicate column names will throw it off
+# it will create a .csv file with clean data from each mouse for further analysis
+# as well as a graph to check correctness
 
+setwd("D:/data/experiments/4_1_0/tumour_growth")
 
+tg <- dir()[1] %>% 
+  read_xls() %>%
+  select(ends_with("L", ignore.case = F),
+         ends_with("W", ignore.case = F),
+         `Item ID`,
+         `Version No.`,
+         starts_with("Exp"),
+         "day" = starts_with("day", ignore.case = F),
+         Box,
+         starts_with("Animal")) %>%
+  fill(`Item ID`) %>%
+  filter(!is.na(`Version No.`)) %>%
+  group_by(`Item ID`) %>%
+  fill(`Animal ID`, Box, `Expt ID`, .direction = "up") %>%
+  filter(!is.na(`Expt ID`)) %>%
+  unite("mouse", Box, `Animal ID`, sep = "-") %>%
+  group_by(mouse) %>%
+  fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, day, .direction = "up") %>%
+  fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, day) %>%
+  filter(!is.na(`R Tumour L`)) %>%
+  group_by(day, mouse) %>%
+  mutate(`R Tumour L` = `R Tumour L`[match(max(`Version No.`), `Version No.`)],
+         `R Tumour W` = `R Tumour W`[match(max(`Version No.`), `Version No.`)],
+         `L Tumour L` = `L Tumour L`[match(max(`Version No.`), `Version No.`)],
+         `L Tumour W` = `L Tumour W`[match(max(`Version No.`), `Version No.`)]) %>%
+  select(-`Version No.`) %>%
+  distinct() %>%
+  mutate(L = as.numeric(`L Tumour W`) * as.numeric(`L Tumour L`), 
+         R = as.numeric(`R Tumour W`) * as.numeric(`R Tumour L`)) %>%
+  drop_na() %>%
+  gather(key = "flank", value = "tumour_size", L, R) %>%
+  ungroup() %>%
+  mutate(day = str_remove(.$day, "float;#") %>% as.numeric(),
+         mouse = as.character(mouse)) %>%
+  filter(day < 100)
 
-AE101_columns <- c("numeric", 
-                   "numeric",
-                   rep("skip", times = 3), 
-                   "text", 
-                   "numeric", 
-                   rep("skip", times = 10), 
-                   "numeric", 
-                   "numeric",
-                   rep("skip", times = 6),
-                   "numeric",
-                   rep("skip", times = 12),
-                   "numeric",
-                   "numeric",
-                   rep("skip", times = 5),
-                   "text")
-
-dual_tumour_growth <- function(directory, columns) {
+dual_tumour_growth <- function(directory) {
   
   setwd(directory) 
   
   tg <- dir()[1] %>% 
-    read_xls(col_types = columns) %>%
+    read_xls() %>%
+    select(ends_with("L", ignore.case = F),
+           ends_with("W", ignore.case = F),
+           `Item ID`,
+           `Version No.`,
+           starts_with("Exp"),
+           "day" = starts_with("day", ignore.case = F),
+           Box,
+           starts_with("Animal")) %>%
     fill(`Item ID`) %>%
     filter(!is.na(`Version No.`)) %>%
     group_by(`Item ID`) %>%
     fill(`Animal ID`, Box, `Expt ID`, .direction = "up") %>%
     filter(!is.na(`Expt ID`)) %>%
-    unite("mouse", Box, `Animal ID`, sep = ".") %>%
+    unite("mouse", Box, `Animal ID`, sep = "-") %>%
     group_by(mouse) %>%
-    fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, `days (tumour)`, .direction = "up") %>%
+    fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, day, .direction = "up") %>%
+    fill(`R Tumour L`, `R Tumour W`, `L Tumour L`, `L Tumour W`, day) %>%
     filter(!is.na(`R Tumour L`)) %>%
-    group_by(`days (tumour)`, mouse) %>%
+    group_by(day, mouse) %>%
     mutate(`R Tumour L` = `R Tumour L`[match(max(`Version No.`), `Version No.`)],
            `R Tumour W` = `R Tumour W`[match(max(`Version No.`), `Version No.`)],
            `L Tumour L` = `L Tumour L`[match(max(`Version No.`), `Version No.`)],
            `L Tumour W` = `L Tumour W`[match(max(`Version No.`), `Version No.`)]) %>%
     select(-`Version No.`) %>%
     distinct() %>%
-    mutate(L_Tumour_size = `L Tumour W` * `L Tumour L`, 
-           R_Tumour_size = `R Tumour W` * `R Tumour L`) %>%
+    mutate(L = as.numeric(`L Tumour W`) * as.numeric(`L Tumour L`), 
+           R = as.numeric(`R Tumour W`) * as.numeric(`R Tumour L`)) %>%
     drop_na() %>%
-    mutate(diff_size = ((L_Tumour_size - R_Tumour_size) / (L_Tumour_size + R_Tumour_size))) %>%
-    gather(key = "flank", value = "tumour_size", L_Tumour_size, R_Tumour_size) %>%
-    mutate(log_tumour_size = log(tumour_size)) %>%
-    unite("mouse_flank", mouse, flank, remove = F)
-  
-  
-  tg$`days (tumour)` <- str_remove(tg$`days (tumour)`, "float;#") %>% as.numeric()
-  tg$diff_size[is.na(tg$diff_size)] <- 0
+    gather(key = "flank", value = "tumour_size", L, R) %>%
+    ungroup() %>%
+    mutate(day = str_remove(.$day, "float;#") %>% as.numeric(),
+           mouse = as.character(mouse)) %>%
+    filter(day < 100)
   
   setwd(paste(getwd(), "/.."))
   
-  write.csv(tg, file = "tumour_growth.csv")
+  write.csv(tg, file = "tumour_growth.csv", row.names = F)
   l_text <- "LEFT"
   r_text <- "RIGHT"
   l_grob <- grid.text(l_text, just = c(1,1), x = 1, y = 1, gp = gpar(fontsize = 14))
@@ -73,7 +101,7 @@ dual_tumour_growth <- function(directory, columns) {
   
   colour_scale <- scale_colour_manual(values = brewer.pal(8, "Dark2"))
   
-  D <- ggplot(tg, aes(`days (tumour)`, diff_size, group = mouse, colour = mouse)) +
+  D <- ggplot(tg, aes(day, diff_size, group = mouse, colour = mouse)) +
     Line + 
     theme(legend.position = "none") +
     labs(y = "proportional tumour size difference",
@@ -86,7 +114,7 @@ dual_tumour_growth <- function(directory, columns) {
   y_limits <- c(0, max(tg$tumour_size))
   
   
-  L <- ggplot(filter(tg, flank == "L_Tumour_size"), aes(`days (tumour)`, tumour_size, group = mouse, colour = mouse)) +
+  L <- ggplot(filter(tg, flank == "L"), aes(day, tumour_size, group = mouse, colour = mouse)) +
     Line +
     scale_x_reverse() +
     theme(legend.position = "none") +
@@ -95,7 +123,7 @@ dual_tumour_growth <- function(directory, columns) {
     labs(y = expression(paste("tumour size ", mm^2)),
          x = "days post innoculation")
   
-  R <- ggplot(filter(tg, flank == "R_Tumour_size"), aes(`days (tumour)`, tumour_size, group = mouse, colour = mouse)) +
+  R <- ggplot(filter(tg, flank == "R"), aes(day, tumour_size, group = mouse, colour = mouse)) +
     Line +
     scale_y_continuous(position = "right", limits = y_limits) +
     theme(legend.position = c(0.05, 0.95),

@@ -1,6 +1,6 @@
 # sort_function("D:/data/experiments/4_1_0/sort_PDFs")
 
-setwd("D:/data/experiments/4_1_0")
+working_path <- "experiments/4_1_0"
 
 # sort <- read.csv("sort_data.csv") %>%
 #   select(-X, -population, -exp, "exp" = "storage")
@@ -8,6 +8,8 @@ setwd("D:/data/experiments/4_1_0")
 # write.csv(sort, "sort_data.csv")
 # 
 # sort <- read.csv("sort_data.csv")
+
+dual_tumour_growth("D:/data/experiments/4_1_0/tumour_growth")
 
 tumour_growth("D:/data/experiments/4_1_0/tumour_growth")
 
@@ -26,29 +28,29 @@ sort <- read.csv("sort_data.csv")
 # 
 # write.csv(sort, "sort_data.csv")
 # 
-# clean_data("D:/data/experiments/4_1_0/1239Shp14_Final MiXCR results/PID summary")
-# 
-# data <- read.csv("cleaned_CDR3s.csv")
-# 
-# data$exp <- data$exp %>%
-#    str_replace("_", ".") %>%
-#    str_replace("-", ".") %>%
-#    str_replace("_PCR2_1_", "_1.") %>%
-#    str_replace("-", "_") %>%
-#    str_replace("-", ".") %>%
-#    str_replace("LT", "T_L") %>%
-#    str_replace("RT", "T_R") %>%
-#    str_replace("L4", "T_L_CD4") %>%
-#    str_replace("L8", "T_L_CD8") %>%
-#    str_replace("R4", "T_R_CD4") %>%
-#    str_replace("R8", "T_R_CD8") %>%
-#    str_replace_all("-", "_")
-# 
-# write.csv(data, "cleaned_CDR3s.csv", row.names = F)
+clean_data("D:/data/experiments/4_1_0/1239Shp14_Final MiXCR results/PID summary")
+
+data <- read_csv(file.path(getwd(), working_path, "1239Shp14_Final MiXCR results/cleaned_CDR3s.csv"))
+
+data$exp <- data$exp %>%
+   str_replace("_", ".") %>%
+   str_replace("-", ".") %>%
+   str_replace("_PCR2_1_", "_1.") %>%
+   str_replace("-", "_") %>%
+   str_replace("-", ".") %>%
+   str_replace("LT", "T_L") %>%
+   str_replace("RT", "T_R") %>%
+   str_replace("L4", "T_L_CD4") %>%
+   str_replace("L8", "T_L_CD8") %>%
+   str_replace("R4", "T_R_CD4") %>%
+   str_replace("R8", "T_R_CD8") %>%
+   str_replace_all("-", "_")
+
+write.csv(data, file.path(getwd(), working_path, "1239Shp14_Final MiXCR results/cleaned_CDR3s.csv"), row.names = F)
 
 neg_4_1_0 <- PID_control("D://data//experiments//4_1_0//1239Shp14_Final MiXCR results")
 
-data <- read.csv("cleaned_CDR3s.csv", stringsAsFactors = F)
+data <- read.csv(file.path(getwd(), working_path, "cleaned_CDR3s.csv"), stringsAsFactors = F)
 
 data$exp %>% unique()
 

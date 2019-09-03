@@ -1,20 +1,119 @@
-jk4 <- list(jk41 = read.csv("D:/data/experiments/4_1_0/cleaned_CDR3s.csv"),
-            jk42 = read.csv("D:/data/experiments/4_2_0/cleaned_CDR3s.csv")) %>%
-  map(data_aa) %>%
-  bind_rows()
 
-hd_dual_tumour(jk4)
+# data
+#####
 
-jk4_sort <- list(jk41 = read.csv("D:/data/experiments/4_1_0/sort_data.csv"),
-                 jk42 = read.csv("D:/data/experiments/4_2_0/sort_data.csv")) %>%
+factors = c("jkexp",      "mouse",      "tissue",     "flank",      "population")
+
+fig1 <- bind_rows(read.csv(file.path(getwd(), "4_1_0", "tumour_growth.csv"), stringsAsFactors = F),
+                   read.csv(file.path(getwd(), "4_2_0", "tumour_growth.csv"), stringsAsFactors = F)) %>%
+  unite("exp", Expt.ID, mouse, flank, sep = "_", remove = F)
+
+jk4 <- bind_rows(jk41, jk42) %>%
+  factor_extractor()
+
+jk4_sort <- list(jk41 = read.csv("D:/data/experiments/4_1_0/sort_data.csv", stringsAsFactors = F),
+                 jk42 = read.csv("D:/data/experiments/4_2_0/sort_data.csv", stringsAsFactors = F)) %>%
   map(factor_extractor) %>%
   bind_rows(.id = "treated") %>%
-  select(-X)
+  select(-X) %>%
+  filter(tissue == "T")
 
 jk4_summary <- list(jk41 = read.csv("D:/data/experiments/4_1_0/summary_stats.csv"),
                     jk42 = read.csv("D:/data/experiments/4_2_0/summary_stats.csv")) %>%
   map(factor_extractor) %>%
   bind_rows(.id = "treated")
+#####
+# figure 1
+#####
+
+sequenced_only <- jk4_summary %>%
+  select(jkexp, mouse, flank) %>%
+  mutate(mouse = str_replace(.$mouse, fixed("."), "-")) %>%
+  unite("exp", sep = "_")
+
+fig1A <- fig1 %>%
+  right_join(sequenced_only)
+
+table(fig1A$Expt.ID, fig1A$mouse)
+
+fig1A$Expt.ID[fig1A$Expt.ID == "JK4.1"] <- "untreated"
+
+fig1A$Expt.ID[fig1A$Expt.ID == "JK4.2"] <- "OX-40 + CTLA-4"
+
+ggplot(fig1A, aes(day, tumour_size, group = exp, colour = Expt.ID)) +
+  geom_line() +
+  theme(legend.title = element_blank(),
+        axis.line = element_line()) +
+  labs(y = "tumour size mm^2", x = "days post inoculation", title = "A") +
+  geom_vline(xintercept = 10, linetype = 2) +
+  geom_vline(xintercept = 13, linetype = 2) +
+  scale_x_continuous(breaks = seq(from = min(fig1A$day), to = max(fig1A$day), by = 2)) +
+  scale_y_continuous(breaks = seq(from = 0, to = 60, by = 10),
+                     labels = c(0, "", 20, "", 40, "", 60))
+
+fig1A %>%
+  filter(day == 14) %>%
+  ggplot(aes(Expt.ID, tumour_size, fill = Expt.ID)) +
+  geom_boxplot() +
+  stat_compare_means(aes(label = ..p.signif..), label.x = 1.5) +
+  labs(y = "tumour size mm^2 at day 14", title = "B") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
+
+fig1B <- jk4_sort %>%
+  select(-exp) %>%
+  mutate(mouse = str_replace(.$mouse, fixed("."), "-")) %>%
+  unite("exp", jkexp, mouse, flank, sep = "_", remove = F) %>%
+  right_join(sequenced_only)
+
+#####
+# figure 2
+#####
+
+jk4_8 <- morisita_df(jk4, "CD8")
+
+jk4_m <- jk4_8 %>% 
+  separate(from, into = c("exp1", "mouse1", NA, NA, NA), remove = F, sep = "_") %>%
+  separate(to, into = c("exp2", "mouse2", NA, NA, NA), remove = F, sep = "_") %>%
+  mutate(same_mouse = if_else(exp1 == exp2 & mouse1 == mouse2, T, F),
+         same_exp = if_else(exp1 == exp2, T, F),
+         population = if_else(str_detect(.$from, "CD4"), "CD4", "CD8"))
+
+jk4_m_anti <- jk4_m %>%
+  filter(same_mouse == F & same_exp == T) %>%
+  anti_join(jk4_m %>% filter(exp1 == "JK4.1", population == "CD4", same_mouse == F, same_exp == T) %>% dplyr::sample_n(54)) %>%
+  anti_join(jk4_m %>% filter(exp1 == "JK4.1", population == "CD8", same_mouse == F & same_exp == T) %>% dplyr::sample_n(54)) %>%
+  anti_join(jk4_m %>% filter(exp1 == "JK4.2", population == "CD4", same_mouse == F & same_exp == T) %>% dplyr::sample_n(54)) %>%
+  anti_join(jk4_m %>% filter(exp1 == "JK4.2", population == "CD8", same_mouse == F & same_exp == T) %>% dplyr::sample_n(54))
+
+jk4_m <- jk4_m %>%
+  filter(same_mouse == T) %>%
+  bind_rows(jk4_m_anti) %>%
+  select(from, to, index, same_mouse) %>%
+  separate(from, into = c("exp", NA, NA, NA, "population"), remove = F, sep = "_")
+
+jk4_m$exp <- if_else(jk4_m$exp == "JK4.1", "untreated", "aCTLA-4 + aOX-40")
+
+ggplot(jk4_m, aes(same_mouse, index, fill = same_mouse)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(height = 0, width = 0.1) +
+  facet_grid(exp ~ population) +
+  stat_compare_means(label.x = 1.5, label = "p.format") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank()) +
+  scale_fill_discrete(labels = c("between", "within"))
+
+#####
+
+
+
+
+hd_dual_tumour(jk4)
+
+
+
 
 jk4_ss <- jk4_sort %>%
   left_join(jk4_summary) %>%

@@ -40,6 +40,7 @@ library(colorRamps)
 library(vegan)
 library(rlang)
 library(stringi)
+library(furrr)
 
 #####
 # data cleaning
@@ -49,6 +50,8 @@ library(stringi)
 # it returns 2 .csv files with clean data and rejected CDR3s for reference
 
 clean_data <- function(directory) {
+  
+  origin <- getwd()
   
   setwd(directory)
   
@@ -61,7 +64,7 @@ clean_data <- function(directory) {
   names(raw_exp) <- names_exp
   
   exp <- bind_rows(raw_exp, .id = "exp") %>%
-    select(-ends_with("R1"), 
+    dplyr::select(-ends_with("R1"), 
            -ends_with("R2"), 
            -ends_with("R4"), 
            -refPoints, 
@@ -78,7 +81,7 @@ clean_data <- function(directory) {
     separate(allVHitsWithScore, c("v_gene", "potential_v_gene"), sep = "\\*") %>%
     separate(allJHitsWithScore, c("j_gene", "potential_j_gene"), sep = "\\*") %>%
     separate(allDHitsWithScore, c("d_gene", "potential_d_gene"), sep = "\\*") %>%
-    select(-starts_with("potential")) %>%
+    dplyr::select(-starts_with("potential")) %>%
     mutate(v_gene = str_remove(v_gene, "m"),
            d_gene = str_remove(d_gene, "m"),
            j_gene = str_remove(j_gene, "m"))
@@ -89,15 +92,14 @@ clean_data <- function(directory) {
   reject_vector <- str_detect(exp$aaSeqCDR3, "_") | 
     str_detect(exp$aaSeqCDR3, "\\*") | 
     str_length(exp$aaSeqCDR3) > 20 | 
-    str_length(exp$aaSeqCDR3) < 8 |
-    exp$cloneCount < 3 |
-    exp$PID.count < 3 #|
-  #  nSeqCDR3 != "TGTGCCAGCGGTGAGACAGGGACCAACGAAAGATTATTTTTC"
+    str_length(exp$aaSeqCDR3) < 8 #|
+    # exp$cloneCount < 3 |
+    # exp$PID.count < 3
   
   exp_rejects <- exp %>%
     filter(reject_vector)
   
-  setwd(paste(getwd(), "/../.."))
+  setwd(paste(getwd(), "/.."))
   
   write.csv(exp_rejects, "rejected_CDR3s.csv")
   
@@ -107,6 +109,8 @@ clean_data <- function(directory) {
     filter(!reject_vector)
   
   write.csv(exp_clean, "cleaned_CDR3s.csv", row.names = F)
+  
+  setwd(origin)
 }
 
 #####
@@ -143,12 +147,12 @@ factor_extractor_union <- function(data) {
 }
 
 #####
-# richness eveness
+# summary data
 #####
 
 # summary_TCRseq returns a csv file with summary information from the clean_data function
 
-summary_TCRseq <- function(data) {
+summary_TCRseq <- function(data, location) {
   
   entropy <- function(x) {
     H <- vector()
@@ -179,7 +183,7 @@ summary_TCRseq <- function(data) {
               diversity = entropy(PID.fraction),
               simpsons = simpsons_index(PID.fraction))
   
-  write.csv(exp_richness_summary, "summary_stats.csv", row.names = F)
+  write_csv(exp_richness_summary, file.path(location, "summary_stats.csv"))
 }
 
 
@@ -200,7 +204,6 @@ data_aa <- function(data) {
 }
 
 
-#####
 #####
 # circos plots
 #####
@@ -1296,8 +1299,6 @@ graph <- setdiff %>%
   graph_from_data_frame(directed = F, vertices = vert)
 
 #####
-
-#####
 setdiff_temp <- exp_clean_only_aa %>%
   filter(timepoint == "0", response == "NR") %>%
   group_by(aaSeqCDR3) %>%
@@ -1534,7 +1535,7 @@ all_intersects <- function(df) {
   dat <- df %>%
     factor_extractor()
   
-  pop_vector <- dat$pop %>% unique()
+  pop_vector <- dat$population %>% unique()
   
   map_list <- list()
   
@@ -1543,11 +1544,11 @@ all_intersects <- function(df) {
   for (j in 1:length(pop_vector)) {
     exp_group <- df %>%
       factor_extractor() %>%
-      filter(pop == pop_vector[j]) %>%
+      filter(population == pop_vector[j]) %>%
       group_by(exp) %>%
       group_split()
     for (k in 2:length(exp_group)) {
-      exp_calc <- CombSet(exp_group, m = k)
+      exp_calc <- CombSet(exp_group, m = 2)
       for (l in 1:(length(exp_calc)/k)) {
         map_list[[m]] <- exp_calc[l, ] %>% reduce(inner_join, by = "aaSeqCDR3")
         m <- m + 1
@@ -1562,7 +1563,7 @@ all_intersects <- function(df) {
   
   exp_int <- exp_intersect %>%
     mutate(clone_sum = rowSums(select(., starts_with("PID.fraction_sum")), na.rm = T)) %>%
-    group_by(mice, pop.x) %>%
+    group_by(mice, population.x) %>%
     summarise(n_clones = n(),
               clonal_proportion_norm = sum(clone_sum)/n_clones,
               clonal_proportion = sum(clone_sum)) %>%
@@ -1817,7 +1818,7 @@ morisita_network <- function(df, population) {
     separate(intersect, into = c("from", "to"), sep = "-") %>%
     mutate(index = index * 10) %>%
     select(from, to, index) %>%
-    filter(index > 3) # remove irrelevant edges
+    filter(index > 1) # remove irrelevant edges
   
   exp_vertexlist <- data.frame(exp = c(exp_edgelist$from, exp_edgelist$to), stringsAsFactors = F) %>%
     distinct() %>% 
@@ -1837,9 +1838,9 @@ morisita_network <- function(df, population) {
 morisita_df <- function(df, population) {
   dat <- df %>%
     factor_extractor() %>%
-    filter(pop == population)
+    filter(population == population)
   
-  pop_vector <- dat$pop %>% unique()
+  pop_vector <- dat$population %>% unique()
   
   map_list <- list()
   
@@ -1847,11 +1848,11 @@ morisita_df <- function(df, population) {
   
   for (j in 1:length(pop_vector)) {
     exp_group <- dat %>%
-      filter(pop == pop_vector[j]) %>%
+      filter(population == pop_vector[j]) %>%
       group_by(exp) %>%
       group_split()
     for (k in 2) {
-      exp_calc <- CombSet(exp_group, m = k)
+      exp_calc <- CombSet(exp_group, m = 2)
       for (l in 1:(length(exp_calc)/k)) {
         map_list[[m]] <- exp_calc[l,] %>% reduce(full_join, by = "aaSeqCDR3")
         m <- m + 1

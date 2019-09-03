@@ -1,8 +1,8 @@
-tumour_growth("D:/data/experiments/4_2_0/tumour_growth")
+dual_tumour_growth("D:/data/experiments/4_2_0/tumour_growth")
 
 # sort_function("D:/data/experiments/4_2_0/sort_PDFs")
 
-setwd("D:/data/experiments/4_2_0")
+working_path <- "experiments/4_2_0"
 
 # sort <- read.csv("sort_data.csv") %>%
 #   select(-population, -exp, "exp" = "storage")
@@ -23,20 +23,30 @@ sort <- read.csv("sort_data.csv")
 # 
 # write.csv(sort, "D:/data/experiments/4_2_0/sort_data.csv", row.names = F)
 
-# 
-# clean_data("D:/data/experiments/4_2_0/1239Shp17 MixCR analysis all samples/PID summary")
+
+clean_data("D:/data/experiments/4_2_0/Amended and updated  1239Shp17 MixCR analysis all samples/PID summary")
+
+tumour_growth <- read.csv("tumour_growth.csv")
 
 neg_4_2_0 <- PID_control("D://data//experiments//4_2_0//1239Shp17 MixCR analysis all samples")
 
-data <- read.csv("cleaned_CDR3s.csv")
+data <- read_csv(file.path(getwd(), working_path, "Amended and updated  1239Shp17 MixCR analysis all samples/cleaned_CDR3s.csv"))
 
 summary_TCRseq(data)
 
-jk42 <- data_aa(data) %>% factor_extractor()
+summary <- read_csv(file.path(getwd(), working_path, "summary_stats.csv"))
 
-morisita_network(jk42, "CD4")
+factors <- c("jkexp", "mouse", "tissue", "flank", "pop")
 
-morisita_network(jk42, "CD8")
+jk42 <- data_aa(data)
+
+jk42$exp <- jk42$exp %>%
+  str_replace("_8", "_CD8") %>%
+  str_replace("_4", "_CD4")
+
+morisita_network(jk42, "4")
+
+morisita_network(jk42, "8")
 
 jk42_overlaps <- all_intersects(jk42)
 
