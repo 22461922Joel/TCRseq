@@ -26,6 +26,106 @@ clust_NA <- clust_dif %>%
 ggplot(clust_dif %>% na.omit(), aes(n_mice)) +
   geom_density()
 
+data_clustered_reduced <- data_clustered %>%
+  group_by(PID_cluster) %>%
+  mutate(total_PID.count = sum(PID.count)) %>%
+  group_by(PID_cluster, model, timepoint, response) %>%
+  summarise(PID.count = sum(PID.count),
+            n_mice = n_distinct(mouse),
+            total_PID.count = mean(total_PID.count))
+
+test <- data_clustered_reduced %>% na.omit() %>% filter(total_PID.count > 50000)
+
+ggplot(data_clustered_reduced %>% 
+         na.omit() %>% 
+         filter(total_PID.count > 50000), aes(timepoint, 
+                                              PID.count, 
+                                              group = interaction(PID_cluster, response), 
+                                              shape = response)) +
+  geom_point(aes(colour = n_mice), size = 5) +
+  theme(panel.background = element_rect(fill = "grey")) +
+  geom_line() +
+  scale_colour_viridis_c() +
+  facet_grid(model ~ PID_cluster)
+
+clust_pca_df <- data_clustered %>%
+  group_by(PID_cluster, exp) %>%
+  summarise(PID.count = sum(PID.count)) %>%
+  na.omit() %>%
+  spread(PID_cluster, PID.count, fill = 0) %>%
+  mutate_if(is.numeric, scale)
+
+clust_pca <- prcomp(clust_pca_df[,-1])
+
+summary(clust_pca)
+
+clust_pca_pcs <- clust_pca$x %>%
+  as.data.frame() %>%
+  select(PC1, PC2) %>%
+  bind_cols(clust_pca_df[,1]) %>%
+  factor_extractor()
+
+ggplot(clust_pca_pcs, aes(PC1, PC2, colour = model)) +
+  geom_point() +
+  theme_bw()
+
+clones_isoMDS_df <- data_clustered %>%
+  dplyr::select(exp, PID.count, aaSeqCDR3) %>%
+  group_by(exp, aaSeqCDR3) %>%
+  summarise(PID.count = sum(PID.count)) %>%
+  spread(aaSeqCDR3, PID.count, fill = 0) %>%
+  column_to_rownames("exp") %>%
+  vegdist()
+
+clones_isoMDS <- isoMDS(clones_isoMDS_df)
+
+clones_isoMDS_comps <- clones_isoMDS$points %>%
+  as.data.frame() %>%
+  rownames_to_column("exp") %>%
+  factor_extractor()
+
+ggplot(clones_isoMDS_comps, aes(V1, V2, colour = model)) +
+  geom_point() +
+  theme_bw()
+
+fraction_isoMDS_df <- data_clustered %>%
+  dplyr::select(exp, PID.fraction, aaSeqCDR3) %>%
+  group_by(exp, aaSeqCDR3) %>%
+  summarise(PID.fraction = sum(PID.fraction)) %>%
+  spread(aaSeqCDR3, PID.fraction, fill = 0) %>%
+  column_to_rownames("exp") %>%
+  vegdist()
+
+fraction_isoMDS <- isoMDS(fraction_isoMDS_df)
+
+fraction_isoMDS_comps <- fraction_isoMDS$points %>%
+  as.data.frame() %>%
+  rownames_to_column("exp") %>%
+  factor_extractor()
+
+ggplot(fraction_isoMDS_comps, aes(V1, V2, colour = model)) +
+  geom_point() +
+  theme_bw()
+
+clust_isoMDS_df <- data_clustered %>%
+  group_by(PID_cluster, exp) %>%
+  summarise(PID.count = sum(PID.count)) %>%
+  na.omit() %>%
+  spread(PID_cluster, PID.count, fill = 0) %>%
+  column_to_rownames("exp") %>%
+  vegdist()
+
+clust_isoMDS <- isoMDS(clust_isoMDS_df)
+
+clust_isoMDS_comps <- clust_isoMDS$points %>%
+  as.data.frame() %>%
+  rownames_to_column("exp") %>%
+  factor_extractor()
+
+ggplot(clust_isoMDS_comps, aes(V1, V2, colour = model)) +
+  geom_point() +
+  theme_bw()
+
 cluster_1 <- all_clusters %>%
   filter(cluster == "cluster10") %>%
   mutate(residue_group = str_replace_all(aaSeqCDR3, c("[IV]" = "J", 
@@ -53,44 +153,41 @@ E(cluster_1_graph)$color[E(cluster_1_graph)$color == 0] <- 3
 
 ggnet2(cluster_1_graph, edge.color = "color", node.size = 3)
 
-data_meta <- data %>%
-  left_join(all_clusters) %>%
-  factor_extractor() %>%
-  mutate(cluster = str_remove(pid_cluster, "cluster") %>% as.numeric()) %>%
-  dplyr::select(model, timepoint, response, pid_cluster, PID.fraction, mouse) %>%
-  group_by(model, timepoint, response, pid_cluster, mouse) %>%
-  summarise(cluster_fraction = sum(PID.fraction)) %>%
-  group_by(pid_cluster, model, timepoint, response) %>%
-  mutate(n_mice = n_distinct(mouse)) %>%
-  group_by(pid_cluster, model, timepoint) %>%
+data_meta <- data_clustered %>%
+  dplyr::select(model, timepoint, response, PID_cluster, PID.count, mouse) %>%
+  group_by(model, timepoint, response, PID_cluster, mouse) %>%
+  summarise(cluster_count = sum(PID.count)) %>%
+  group_by(PID_cluster, model, timepoint, response) %>%
+  mutate(n_mice = n_distinct(mouse),
+         mean_count = mean(cluster_count)) %>%
+  group_by(PID_cluster, model, timepoint) %>%
   mutate(n_groups = n_distinct(response),
-         m_mouse = if_else(min(n_mice) == 1 | min(n_groups) == 1, 1, as.double(min(n_mice)))) %>%
-  filter(m_mouse != 1) %>%
-  dplyr::select(-mouse, -n_groups, -n_mice, -m_mouse) %>%
-  group_by(timepoint, pid_cluster, model, response) %>%
+         m_mouse = if_else(min(n_mice) == 1 | min(n_groups) == 1, 1, as.double(min(n_mice))),
+         mean_dif = max(mean_count) - min(mean_count)) %>%
+  filter(m_mouse != 1, mean_dif > 10) %>%
+  na.omit() %>%
+  dplyr::select(-mouse, -n_groups, -n_mice, -m_mouse, -mean_dif, -mean_count) %>%
+  group_by(timepoint, PID_cluster, model, response) %>%
   nest() %>%
   spread(key = response, value = data) %>%
-  mutate(t_test = map2(RS, NR, ~{t.test(.x$cluster_fraction, .y$cluster_fraction) %>% tidy()}),
+  mutate(t_test = map2(RS, NR, ~{t.test(.x$cluster_count, .y$cluster_count) %>% tidy()}),
          NR = map(NR, nrow),
          RS = map(RS, nrow)) %>%
   unnest()
 
-data_log2_foldchange <- data %>%
-  left_join(all_clusters) %>%
-  factor_extractor() %>%
-  mutate(cluster = str_remove(cluster, "cluster") %>% as.numeric()) %>%
-  dplyr::select(model, timepoint, response, cluster, PID.fraction, mouse) %>%
-  group_by(model, timepoint, response, cluster, mouse) %>%
-  summarise(cluster_fraction = sum(PID.fraction)) %>%
-  group_by(cluster, model, timepoint, response) %>%
+data_log2_foldchange <- data_clustered %>%
+  dplyr::select(model, timepoint, response, PID_cluster, PID.count, mouse) %>%
+  group_by(model, timepoint, response, PID_cluster, mouse) %>%
+  summarise(cluster_count = sum(PID.count)) %>%
+  group_by(PID_cluster, model, timepoint, response) %>%
   mutate(n_mice = n_distinct(mouse)) %>%
-  group_by(cluster, model, timepoint) %>%
+  group_by(PID_cluster, model, timepoint) %>%
   mutate(n_groups = n_distinct(response),
          m_mouse = if_else(min(n_mice) == 1 | min(n_groups) == 1, 1, as.double(min(n_mice)))) %>%
   filter(m_mouse != 1) %>%
-  group_by(cluster, model, timepoint, response) %>%
-  summarise(mean_cluster_fraction = mean(cluster_fraction)) %>%
-  spread(response, mean_cluster_fraction) %>%
+  group_by(PID_cluster, model, timepoint, response) %>%
+  summarise(mean_cluster_count = mean(cluster_count)) %>%
+  spread(response, mean_cluster_count) %>%
   mutate(log2_foldchange = log2(RS) - log2(NR)) %>%
   dplyr::select(-RS, -NR) %>%
   left_join(data_meta) %>%
@@ -102,7 +199,13 @@ ggplot(data_log2_foldchange, aes(log2_foldchange, -log10(p.value), colour = mode
   facet_grid(model ~ timepoint)
 
 ggplot(data_log2_foldchange, aes(NR, RS)) +
-  geom_jitter()
+  geom_jitter(alpha = 0.1) +
+  labs(x = "number of non-responding mice", y = "number of responding mice") +
+  geom_density_2d(h = c(3, 3), size = 1, colour = "darkorange") +
+  facet_grid(model ~ timepoint) +
+  theme_bw() +
+  scale_x_continuous(breaks = 2:8) +
+  scale_y_continuous(breaks = 2:8)
 
 table(data_log2_foldchange$NR, data_log2_foldchange$RS)
 
