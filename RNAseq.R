@@ -3,13 +3,95 @@ factors <- c("model", "timepoint", "mouse", "response", "primer")
 
 data <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
                   read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
-  factor_extractor()
+  factor_extractor() %>%
+  filter(!str_detect(v_gene, "TRA"))
 
 length(unique(data$exp))
+
+ggplot(data, aes(PID.count)) +
+  geom_histogram(aes(y = stat(count))) +
+  geom_point(aes(y = stat(count)))
 
 data_clustered <- data %>%
   left_join(as.data.frame(pid_clusters)) %>%
   arrange(desc(PID.fraction), desc(PID_cluster))
+
+data_hmm <- data_clustered %>%
+  full_join(read_csv(file.path(getwd(), "experiments/RNAseq/hmmsearch_left_join.csv"))) %>%
+  group_by(exp, aaSeqCDR3) %>%
+  mutate(hmm_filter = best_domain_evalue == min(best_domain_evalue)) %>%
+  filter(hmm_filter | is.na(hmm_filter))
+
+ggplot(data_hmm %>% filter(PID.count > 1000), aes(exp, PID.count, colour = hmm_cluster)) +
+  geom_point() +
+  scale_color_viridis_c() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(model ~ timepoint, scales = "free_x")
+
+data_McPAS <- data_hmm %>%
+  left_join(hmmsearch_filtered) %>%
+  filter(hmm_cluster == 4 | hmm_cluster == 5) %>%
+  filter(!is.na(exp)) %>%
+  group_by(aaSeqCDR3, pathology, ID, timepoint, model, response) %>%
+  summarise(n_mice = n_distinct(exp),
+            PID.count = sum(PID.count))
+
+ggplot(McPAS_filtered %>% 
+         mutate(pathology = str_remove(pathology, "Human") %>% 
+                  str_remove("Experimental_autoimmune_encephalomyelitis") %>%
+                  str_remove("_immunodeficiency_virus") %>%
+                  str_remove("Lymphocytic_choriomeningitis_virus")), aes(x = pathology)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+ggplot(data_McPAS %>% 
+         ungroup() %>%
+         mutate(pathology = str_remove(pathology, "Human") %>% 
+                  str_remove("Experimental_autoimmune_encephalomyelitis") %>%
+                  str_remove("_immunodeficiency_virus") %>%
+                  str_remove("Lymphocytic_choriomeningitis_virus")), aes(pathology)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+ggplot(data_McPAS, aes(n_mice, fill = response)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "check for groups of mice preferentially selecting Ag specific TCRs-experiment level") +
+  facet_grid(model ~ timepoint)
+
+hmm_only <- data_hmm %>%
+  group_by(hmm_cluster) %>%
+  summarise(hmm_PID.count = sum(PID.count),
+            n_greedy_clusters = n_distinct(PID_cluster),
+            n_hmm_mice = n_distinct(exp),
+            mean_evalue = mean(best_domain_evalue)) %>%
+  na.omit()
+
+greedy_only <- data_hmm %>%
+  group_by(model, timepoint, PID_cluster, response) %>%
+  summarise(greedy_PID.count = sum(PID.count),
+            n_hmm_clusters = n_distinct(hmm_cluster),
+            n_greedy_mice = n_distinct(exp)) %>%
+  na.omit()
+
+ggplot(hmm_only, aes(n_greedy_clusters)) +
+  geom_histogram(binwidth = 1) +
+  labs(y = "count of hmm clusters with n greedy clusters", x = "n greedy clusters")
+
+ggplot(hmm_only, aes(n_greedy_clusters, mean_evalue)) +
+  geom_jitter() +
+  scale_y_log10()
+
+sum(data_hmm$PID.count)
+
+ggplot(data_hmm, aes(hmm_cluster)) +
+  geom_histogram()
+
+data_hmm_explore <- data_hmm %>%
+  filter(is.na(hmm_cluster) & is.na(PID_cluster))
+
+sum(data_hmm_explore$PID.count)
+
+mean(data_hmm_explore$best_domain_evalue)
 
 clust_dif <- data_clustered %>%
   group_by(PID_cluster) %>%
@@ -18,13 +100,18 @@ clust_dif <- data_clustered %>%
             total_clones = sum(PID.count)) %>%
   group_by(PID_cluster) %>%
   mutate(total_fraction = total_clones/sum(total_clones),
-         unique_fraction = unique_clones/sum(unique_clones))
+         unique_fraction = unique_clones/sum(unique_clones)) %>%
+  na.omit()
 
 clust_NA <- clust_dif %>%
   filter(is.na(PID_cluster))
 
 ggplot(clust_dif %>% na.omit(), aes(n_mice)) +
   geom_density()
+
+ggplot(clust_dif %>% na.omit(), aes(n_mice)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(from = 0, to = max(clust_dif$n_mice), by = 8))
 
 data_clustered_reduced <- data_clustered %>%
   group_by(PID_cluster) %>%
@@ -46,7 +133,68 @@ ggplot(data_clustered_reduced %>%
   theme(panel.background = element_rect(fill = "grey")) +
   geom_line() +
   scale_colour_viridis_c() +
-  facet_grid(model ~ PID_cluster)
+  facet_grid(model ~ PID_cluster) +
+  theme_bw()
+
+ggplot(data_clustered, aes(v_gene, j_gene)) +
+  stat_bin2d(aes(fill = stat(count))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_fill_viridis_c() +
+  facet_grid(response ~ model)
+
+clust_ab1 <- data_clustered %>%
+  filter(model == "AB1") %>%
+  group_by(PID_cluster, response, timepoint, model) %>%
+  summarise(mean_count = mean(PID.count),
+            sd_count = sd(PID.count),
+            PID.count = sum(PID.count),
+            n_mice = n_distinct(mouse)) %>%
+  na.omit() %>%
+  group_by(PID_cluster) %>%
+  mutate(filter_count = sum(PID.count),
+         filter_mice = min(n_mice),
+         w_sd = wisconsin(sd_count)) %>%
+  filter(filter_count > (mean(.$filter_count) + (4 * sd(.$filter_count))), filter_mice >= 4)
+
+length(unique(clust_ab1$PID_cluster))
+
+ggplot(clust_ab1, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(PID_cluster, response))) +
+  geom_point(aes(colour = n_mice), size = 4) +
+  geom_line(colour = "black") +
+  scale_colour_viridis_c() +
+  theme_bw() +
+  theme(panel.background = element_rect(colour = "grey51")) +
+  facet_wrap(~ PID_cluster) +
+  labs(title = "AB1")
+
+ggtern(clust_ab1, aes(x = wisconsin(mean_count), y = wisconsin(sd_count), z = wisconsin(PID.count), group = PID_cluster)) +
+  geom_point() +
+  scale_colour_viridis_c()
+
+clust_renca <- data_clustered %>%
+  filter(model == "RENCA") %>%
+  group_by(PID_cluster, response, timepoint, model) %>%
+  summarise(mean_count = mean(PID.count),
+            sd_count = sd(PID.count),
+            PID.count = sum(PID.count),
+            n_mice = n_distinct(mouse)) %>%
+  na.omit() %>%
+  group_by(PID_cluster) %>%
+  mutate(filter_count = sum(PID.count),
+         filter_mice = min(n_mice)) %>%
+  filter(filter_count > (mean(.$filter_count) + (2 * sd(.$filter_count))), filter_mice >= 4)
+
+length(unique(clust_renca$PID_cluster))
+
+ggplot(clust_renca, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(PID_cluster, response))) +
+  geom_point(aes(colour = n_mice), size = 4) +
+  geom_line(colour = "black") +
+  scale_colour_viridis_c() +
+  theme_bw() +
+  theme(panel.background = element_rect(colour = "grey51")) +
+  facet_wrap(~ PID_cluster) +
+  labs(title = "RENCA")
 
 clust_pca_df <- data_clustered %>%
   group_by(PID_cluster, exp) %>%
@@ -75,7 +223,7 @@ clones_isoMDS_df <- data_clustered %>%
   summarise(PID.count = sum(PID.count)) %>%
   spread(aaSeqCDR3, PID.count, fill = 0) %>%
   column_to_rownames("exp") %>%
-  vegdist()
+  wisconsin()
 
 clones_isoMDS <- isoMDS(clones_isoMDS_df)
 
@@ -113,6 +261,7 @@ clust_isoMDS_df <- data_clustered %>%
   na.omit() %>%
   spread(PID_cluster, PID.count, fill = 0) %>%
   column_to_rownames("exp") %>%
+  decostand(method = "total") %>%
   vegdist()
 
 clust_isoMDS <- isoMDS(clust_isoMDS_df)
@@ -126,8 +275,11 @@ ggplot(clust_isoMDS_comps, aes(V1, V2, colour = model)) +
   geom_point() +
   theme_bw()
 
-cluster_1 <- all_clusters %>%
-  filter(cluster == "cluster10") %>%
+cluster_1 <- data_hmm %>%
+  ungroup() %>%
+  filter(PID_cluster == 5) %>%
+  dplyr::select(aaSeqCDR3) %>%
+  distinct() %>%
   mutate(residue_group = str_replace_all(aaSeqCDR3, c("[IV]" = "J", 
                                                       "[FY]" = "O", 
                                                       "[QE]" = "U", 

@@ -34,6 +34,7 @@ library(broom)
 library(divo)
 library(readxl)
 library(tidyverse)
+library(gganimate)
 library(ggtern)
 library(lubridate)
 library(ggpubr)
@@ -43,6 +44,9 @@ library(vegan)
 library(rlang)
 library(stringi)
 library(furrr)
+library(rhmmer)
+library(ggbiplot)
+library(fields)
 
 #####
 # data cleaning
@@ -113,6 +117,36 @@ clean_data <- function(directory) {
   write.csv(exp_clean, "cleaned_CDR3s.csv", row.names = F)
   
   setwd(origin)
+}
+
+adaptive_clean_Data <- function(directory) {
+  origin <- getwd()
+  
+  setwd(directory)
+  
+  names_exp <- dir() %>%
+    str_remove("\\.tsv")
+  
+  raw_exp <- dir() %>%
+    map(read_delim, delim = "\t", na = c("unresolved", ""))
+  
+  names(raw_exp) <- names_exp
+  
+  exp <- bind_rows(raw_exp, .id = "exp") %>%
+    dplyr::select(ends_with("resolved"), 
+                  nucleotide, 
+                  aminoAcid, 
+                  contains("Count"), 
+                  -cloneResolved, 
+                  -vAlignSubstitutionCount,
+                  exp) %>%
+    filter(!str_detect(aminoAcid, "\\*"))
+  
+  names(exp) <- c("v_gene", "d_gene", "j_gene", "nSeqCDR3", "aaSeqCDR3", "PID.count", "PID.fraction", "exp")
+  
+  setwd(origin)
+  
+  exp
 }
 
 #####
