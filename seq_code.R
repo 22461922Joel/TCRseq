@@ -33,7 +33,6 @@ library(DescTools)
 library(broom)
 library(divo)
 library(readxl)
-library(tidyverse)
 library(gganimate)
 library(ggtern)
 library(lubridate)
@@ -47,6 +46,8 @@ library(furrr)
 library(rhmmer)
 library(ggbiplot)
 library(fields)
+library(gganimate)
+library(tidyverse)
 
 #####
 # data cleaning
@@ -232,8 +233,8 @@ summary_TCRseq <- function(data, location) {
 
 data_aa <- function(data) {
   data %>%
-    group_by(aaSeqCDR3, exp) %>%
-    summarise(PID.count_sum = sum(PID.count),
+    dplyr::group_by(aaSeqCDR3, exp) %>%
+    dplyr::summarise(PID.count_sum = sum(PID.count),
               PID.fraction_sum = sum(PID.fraction),
               n_nuc = n_distinct(nSeqCDR3)) %>%
     as.data.frame()
@@ -773,36 +774,30 @@ grid.draw(x_gg)
 # dh timepoint framework
 #####
 
-x_df <- exp_clean_only_aa %>%
-  filter(timepoint == "6") %>%
+x_df <- data %>%
+  filter(timepoint == "6" & model == "AB1") %>%
   group_by(aaSeqCDR3) %>%
-  filter(n() >= 3) %>% 
-  mutate(Z_fraction = scale(PID.fraction_sum)) %>%
-  select(-PID.count_sum, -PID.fraction_sum, -n_nuc, -response, -timepoint, -mouse) %>%
-  spread(aaSeqCDR3, Z_fraction) %>%
-  gather("aaSeqCDR3", "Z_fraction", -tpmouse)
-
-x_df[is.na(x_df)] <- 0
-
-x_df_ncp <- estim_ncpPCA(x_df[,2:length(x_df)], ncp.max = (length(x_df) - 1), ncp.min = 2)
-
-x_df_complete <- imputePCA(X = as.data.frame(x_df[,2:length(x_df)]), ncp = x_df_ncp$ncp, scale = T)[[1]] %>%
-  as.data.frame()
-
-x_df_complete$tpmouse <- x_df$tpmouse
-
-x_df_complete <- x_df_complete %>%
-  gather("aaSeqCDR3", "Z_fraction", -tpmouse)
+  filter(n() >= 3 & mean(PID.count_sum) != 1) %>% 
+  mutate(Z_count = scale(PID.count_sum)) %>%
+  dplyr::select(-PID.count_sum, -PID.fraction_sum, -n_nuc, -response, -timepoint, -mouse, -model, -primer) %>%
+  spread(aaSeqCDR3, Z_count) %>%
+  gather("aaSeqCDR3", "Z_count", -exp)
 
 x1 <- x_df %>%
-  column_to_rownames("tpmouse") %>%
+  spread(aaSeqCDR3, Z_count) %>%
+  factor_extractor() %>%
+  dplyr::select(-exp, -timepoint, -primer, -model, -response) %>%
+  column_to_rownames("mouse") %>%
   dist() %>%
   hclust(method = "complete") %>%
   as.dendrogram()
 
-y1 <- x_df %>%
-  gather("aaSeqCDR3", "Z_fraction", -tpmouse) %>%
-  spread(tpmouse, Z_fraction) %>%
+x_df_na <- x_df
+
+x_df_na$Z_count[is.na(x_df_na$Z_count)] <- 0
+
+y1 <- x_df_na %>%
+  spread(exp, Z_count) %>%
   column_to_rownames("aaSeqCDR3") %>%
   dist() %>%
   hclust(method = "complete") %>%
@@ -812,29 +807,34 @@ x_dend <- ggplotGrob(x1 %>%
                        ggdendrogram() +
                        theme_void())
 
-x_df_hm <- exp_clean_only_aa %>%
-  ungroup() %>%
-  select(-aaSeqCDR3, -timepoint:-n_nuc) %>%
-  right_join(x_df) %>%
-  mutate(tpmouse = factor(tpmouse, levels = dendro_data(x1)$labels$label),
-         aaSeqCDR3 = factor(aaSeqCDR3, levels = dendro_data(y1)$labels$label)) %>%
+y1_placement <- dendro_data(y1)$labels$label
+
+x1_placement <- dendro_data(x1)$labels$label
+
+x_df_hm <- x_df %>%
+  factor_extractor() %>%
+  mutate(mouse = factor(mouse, levels = x1_placement),
+         aaSeqCDR3 = factor(aaSeqCDR3, levels = y1_placement),
+         dummy = 1) %>%
   distinct()
 
-x_df_hm$dummy <- 1
-
 x_rs <- ggplotGrob(x_df_hm %>%
-  select(tpmouse, response, dummy) %>%
+  dplyr::select(exp, response, dummy) %>%
   distinct() %>%
-  ggplot(aes(tpmouse, dummy)) +
+  ggplot(aes(exp, dummy)) +
   geom_tile(aes(fill = response)) +
   theme_void() +
-    scale_fill_discrete(guide = F))
+  scale_fill_manual(guide = F, values = c("NR" = "firebrick1",
+                                          "RS" = "deepskyblue1"),
+                      labels = c("NR" = "non-responder",
+                                 "RS" = "responder")))
 
 x_gg <- ggplotGrob(x_df_hm %>%
-                     ggplot(aes(tpmouse, aaSeqCDR3)) +
-                     geom_tile(aes(fill = Z_fraction)) +
-                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank()) +
-                     scale_fill_gradient2(name = "Z score"))
+                     ggplot(aes(mouse, aaSeqCDR3)) +
+                     geom_tile(aes(fill = Z_count)) +
+                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+                     scale_fill_viridis_c(name = "Z score") +
+                     labs(y = "TCRb CDR3 sequence"))
 
 panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
 

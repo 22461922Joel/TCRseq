@@ -1,12 +1,47 @@
 
 factors <- c("model", "timepoint", "mouse", "response", "primer")
+working_path <- file.path(getwd(), "experiments/RNAseq")
 
 data <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
                   read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
   factor_extractor() %>%
-  filter(!str_detect(v_gene, "TRA"))
+  filter(!str_detect(v_gene, "TRA")) %>%
+  data_aa() %>%
+  factor_extractor() %>%
+  group_by(exp) %>%
+  mutate(PID.fraction = PID.count_sum/sum(PID.count_sum))
 
 length(unique(data$exp))
+
+data_bar <- data %>%
+  group_by(exp) %>%
+  group_split() %>%
+  map(arrange, exp, desc(PID.count_sum)) %>%
+  map(rownames_to_column, "rank") %>%
+  bind_rows() %>%
+  mutate(rank = as.numeric(rank))
+
+tmp <- data_bar %>%
+  filter(rank > 10) %>%
+  group_by(exp) %>%
+  summarise(PID.count_sum = sum(PID.count_sum),
+            rank = 11,
+            aaSeqCDR3 = "others")
+
+data_bar_Reduced <- data_bar %>%
+  filter(rank < 11) %>%
+  bind_rows(tmp) %>%
+  factor_extractor() %>%
+  group_by(exp, response) %>%
+  mutate(PID.fraction = PID.count_sum/sum(PID.count_sum),
+         aaSeqCDR3 = factor(aaSeqCDR3, levels = reorder(aaSeqCDR3, rank)),
+         response_l = if_else(response == "RS", T, F))
+
+ggplot(data_bar_Reduced, aes(fct_reorder2(exp, response, PID.fraction) %>% fct_reorder(response), PID.fraction, fill = fct_reorder(as.character(rank), rank))) +
+  geom_bar(stat = "identity", colour = "black") +
+  theme(legend.position = "none", axis.text.x = element_blank()) +
+  scale_fill_viridis_d() +
+  facet_wrap(~ model + timepoint, scales = "free", ncol = 4)
 
 ggplot(data, aes(PID.count)) +
   geom_histogram(aes(y = stat(count))) +
@@ -16,17 +51,102 @@ data_clustered <- data %>%
   left_join(as.data.frame(pid_clusters)) %>%
   arrange(desc(PID.fraction), desc(PID_cluster))
 
-data_hmm <- data_clustered %>%
+data_hmm <- data %>%
   full_join(read_csv(file.path(getwd(), "experiments/RNAseq/hmmsearch_left_join.csv"))) %>%
   group_by(exp, aaSeqCDR3) %>%
   mutate(hmm_filter = best_domain_evalue == min(best_domain_evalue)) %>%
   filter(hmm_filter | is.na(hmm_filter))
 
-ggplot(data_hmm %>% filter(PID.count > 1000), aes(exp, PID.count, colour = hmm_cluster)) +
+cluster4_5 <- data_hmm %>%
+  filter(hmm_cluster == 4 | hmm_cluster == 5) %>%
+  factor_extractor()
+
+cluster4_full <- cluster4_5 %>%
+  dplyr::select(-best_domain_evalue, 
+                -model, 
+                -response, 
+                -timepoint,
+                -primer, 
+                -mouse, 
+                -n_nuc, 
+                -PID.fraction_sum, 
+                -query_name) %>%
+  spread(aaSeqCDR3, PID.count_sum)
+
+cluster4_full[is.na(cluster4_full)] <- 0
+
+cluster4_full <- cluster4_full %>%
+  gather("aaSeqCDR3", "PID.count", -exp, -hmm_cluster) %>%
+  factor_extractor()
+
+ggplot(cluster4_full, aes(reorder(exp, PID.count), PID.count, group = interaction(aaSeqCDR3, as.character(hmm_cluster)))) +
+  geom_area(aes(fill = hmm_cluster), position = "stack") +
+  scale_color_brewer() +
+  geom_line(position = "stack", colour = "black") +
+  theme(legend.position = "none", axis.text.x = element_blank()) +
+  facet_wrap(~ response + model + timepoint, scales = "free_x", ncol = 4)
+
+data_hmm_reduced_RS_AB1_0 <- data_hmm %>%
+  filter(response == "RS", model == "AB1", timepoint == 0) %>%
+  group_by(hmm_cluster, exp) %>%
+  dplyr::summarise(PID.count = sum(PID.count_sum)) %>%
+  ungroup() %>%
+  mutate(hmm_cluster = paste("h", hmm_cluster, sep = "")) %>%
+  group_by(hmm_cluster) %>%
+  mutate(n_mice = n_distinct(exp),
+         hmm_var = var(PID.count)) %>%
+  filter(!is.na(hmm_cluster), n_mice > 4, hmm_var > 1) %>%
+  dplyr::select(-n_mice, -hmm_var) %>%
+  spread(hmm_cluster, PID.count)
+
+data_hmm_reduced_RS_AB1_0 <- data_hmm_reduced_RS_AB1_0 %>%
+  column_to_rownames("exp")
+
+cor_ncp <- estim_ncpPCA(data_hmm_reduced_RS_AB1_0, method.cv = "Kfold")
+
+cor_impute <- imputePCA(data_hmm_reduced_RS_AB1_0[,-1])
+
+estim_ncpPCA(orange)
+
+cor(data_hmm_reduced_RS_AB1_0[,2:50])
+
+t_test_results <- matrix(nrow = length(data_hmm_reduced_RS_AB1), ncol = length(data_hmm_reduced_RS_AB1))
+
+for (i in 1:length(data_hmm_reduced_RS_AB1)) {
+  for (j in 1:length(data_hmm_reduced_RS_AB1)) {
+    t_test_results[i,j] <- if_else(i < j, 
+                                   t.test(data_hmm_reduced_RS_AB1[[i]]$PID.count_sum, data_hmm_reduced_RS_AB1[[j]]$PID.count_sum)$p.value, 
+                                   as.double(0))
+  }
+}
+
+names_vec <- unique(paste(data_hmm_reduced_RS_AB1$hmm_cluster, "_", data_hmm_reduced_RS_AB1$timepoint, sep = ""))
+
+colnames(t_test_results) <- names_vec
+
+rownames(t_test_results) <- names_vec
+
+length(unique(data_hmm_reduced$hmm_cluster))
+
+library(gganimate)
+
+hmm_animate <- ggplot(data = data_hmm_reduced, aes(factor(hmm_cluster), PID.count, colour = response, group = hmm_cluster)) +
   geom_point() +
-  scale_color_viridis_c() +
   theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(model ~ timepoint, scales = "free_x")
+  response_colour_scale +
+  facet_wrap(~ model, scales = "free") +
+  transition_states(states = timepoint) +
+  ease_aes("cubic-in-out") +
+  ggtitle("Timepoint {closest_state}")
+
+ggplot(data_hmm_reduced, aes(timepoint, PID.count, group = interaction(hmm_cluster, response), shape = response)) +
+  geom_point(aes(colour = n_mice), size = 3) +
+  geom_line() +
+  theme_bw() +
+  scale_colour_viridis_c() +
+  facet_wrap(model ~ hmm_cluster, ncol = 8)
+
+animate(hmm_animate)
 
 data_McPAS <- data_hmm %>%
   left_join(hmmsearch_filtered) %>%
@@ -143,29 +263,31 @@ ggplot(data_clustered, aes(v_gene, j_gene)) +
   scale_fill_viridis_c() +
   facet_grid(response ~ model)
 
-clust_ab1 <- data_clustered %>%
+library(vegan)
+
+clust_ab1 <- data_hmm %>%
   filter(model == "AB1") %>%
-  group_by(PID_cluster, response, timepoint, model) %>%
-  summarise(mean_count = mean(PID.count),
-            sd_count = sd(PID.count),
-            PID.count = sum(PID.count),
+  group_by(hmm_cluster, response, timepoint, model) %>%
+  summarise(mean_count = mean(PID.count_sum),
+            sd_count = sd(PID.count_sum),
+            PID.count = sum(PID.count_sum),
             n_mice = n_distinct(mouse)) %>%
   na.omit() %>%
-  group_by(PID_cluster) %>%
+  group_by(hmm_cluster) %>%
   mutate(filter_count = sum(PID.count),
          filter_mice = min(n_mice),
          w_sd = wisconsin(sd_count)) %>%
   filter(filter_count > (mean(.$filter_count) + (4 * sd(.$filter_count))), filter_mice >= 4)
 
-length(unique(clust_ab1$PID_cluster))
+length(unique(clust_ab1$hmm_cluster))
 
-ggplot(clust_ab1, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(PID_cluster, response))) +
+ggplot(clust_ab1, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(hmm_cluster, response))) +
   geom_point(aes(colour = n_mice), size = 4) +
   geom_line(colour = "black") +
   scale_colour_viridis_c() +
   theme_bw() +
   theme(panel.background = element_rect(colour = "grey51")) +
-  facet_wrap(~ PID_cluster) +
+  facet_wrap(~ hmm_cluster) +
   labs(title = "AB1")
 
 ggtern(clust_ab1, aes(x = wisconsin(mean_count), y = wisconsin(sd_count), z = wisconsin(PID.count), group = PID_cluster)) +
@@ -196,11 +318,11 @@ ggplot(clust_renca, aes(timepoint, PID.count, colour = n_mice, shape = response,
   facet_wrap(~ PID_cluster) +
   labs(title = "RENCA")
 
-clust_pca_df <- data_clustered %>%
-  group_by(PID_cluster, exp) %>%
+clust_pca_df <- data_hmm %>%
+  group_by(hmm_cluster, exp) %>%
   summarise(PID.count = sum(PID.count)) %>%
   na.omit() %>%
-  spread(PID_cluster, PID.count, fill = 0) %>%
+  spread(hmm_cluster, PID.count, fill = 0) %>%
   mutate_if(is.numeric, scale)
 
 clust_pca <- prcomp(clust_pca_df[,-1])
@@ -217,7 +339,7 @@ ggplot(clust_pca_pcs, aes(PC1, PC2, colour = model)) +
   geom_point() +
   theme_bw()
 
-clones_isoMDS_df <- data_clustered %>%
+clones_isoMDS_df <- data_hmm %>%
   dplyr::select(exp, PID.count, aaSeqCDR3) %>%
   group_by(exp, aaSeqCDR3) %>%
   summarise(PID.count = sum(PID.count)) %>%
@@ -255,11 +377,11 @@ ggplot(fraction_isoMDS_comps, aes(V1, V2, colour = model)) +
   geom_point() +
   theme_bw()
 
-clust_isoMDS_df <- data_clustered %>%
-  group_by(PID_cluster, exp) %>%
+clust_isoMDS_df <- data_hmm %>%
+  group_by(hmm_cluster, exp) %>%
   summarise(PID.count = sum(PID.count)) %>%
   na.omit() %>%
-  spread(PID_cluster, PID.count, fill = 0) %>%
+  spread(hmm_cluster, PID.count, fill = 0) %>%
   column_to_rownames("exp") %>%
   decostand(method = "total") %>%
   vegdist()
@@ -271,13 +393,20 @@ clust_isoMDS_comps <- clust_isoMDS$points %>%
   rownames_to_column("exp") %>%
   factor_extractor()
 
+tumour_colour_scale <- scale_colour_manual(values = c("AB1" = "violetred",
+                                                        "RENCA" = "seagreen"),
+                                             labels = c("AB1" = "AB1",
+                                                        "RENCA" = "RENCA"))
+
 ggplot(clust_isoMDS_comps, aes(V1, V2, colour = model)) +
   geom_point() +
-  theme_bw()
+  theme_bw() +
+  labs(y = "MDS2", x = "MDS1", title = "A") +
+  tumour_colour_scale
 
 cluster_1 <- data_hmm %>%
   ungroup() %>%
-  filter(PID_cluster == 5) %>%
+  filter(hmm_cluster == 4 & timepoint == 6) %>%
   dplyr::select(aaSeqCDR3) %>%
   distinct() %>%
   mutate(residue_group = str_replace_all(aaSeqCDR3, c("[IV]" = "J", 
@@ -483,7 +612,9 @@ summary$timepoint <- factor(summary$timepoint, levels = c("Pre CPB", "day 2", "d
 summary$response <- factor(summary$response, levels = c("NR", "RS"), ordered = T)
 
 response_fill_scale <- scale_fill_manual(values = c("NR" = "firebrick1",
-                               "RS" = "deepskyblue1"))
+                               "RS" = "deepskyblue1"),
+                               labels = c("NR" = "non-responder",
+                                          "RS" = "responder"))
 
 
 response_colour_scale <- scale_colour_manual(values = c("NR" = "firebrick1",
@@ -491,21 +622,24 @@ response_colour_scale <- scale_colour_manual(values = c("NR" = "firebrick1",
 
 table(summary$timepoint, summary$model, summary$response)
 
-ggplot(summary %>% filter(exp != "AB1_2_39_RS_4"), aes(timepoint, diversity, fill = response)) +
+summary1 <- ggplot(summary, aes(timepoint, diversity, fill = response)) +
   geom_boxplot(outlier.shape = NA) +
   stat_compare_means(aes(group = response), label = "p.signif") +
   geom_point(position = position_jitterdodge(jitter.width = 0.1)) +
-  theme(axis.line = element_line()) +
+  theme_bw() +
+  theme(axis.line = element_line(), legend.position = "bottom", legend.box = "vertical", legend.title = element_blank()) +
   response_fill_scale +
-  facet_grid(model ~ .)
+  facet_grid(model ~ .) +
+  labs(title = "B")
 
-ggplot(summary, aes(evenness, richness, colour = response)) +
+summary2 <- ggplot(summary, aes(evenness, richness, colour = response)) +
   geom_point() +
-  scale_y_log10(breaks = c(1000, 2000, 4000, 8000)) +
+  scale_y_log10(breaks = c(500, 2000, 8000, 32000, 128000)) +
   scale_x_log10(breaks = c(190000, 19000, 1900)) +
   facet_grid(model ~ timepoint) +
-  labs(y = "unique clones", x = "total clones") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), axis.line = element_line()) +
+  labs(y = "unique clones", x = "total clones", title = "A") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "none") +
   response_colour_scale
 
 
@@ -514,8 +648,7 @@ ggplot(summary, aes(evenness, richness, colour = response)) +
 #####
 
 counts_list <- data %>%
-  data_aa() %>%
-  select(exp, PID.count_sum, aaSeqCDR3) %>%
+  dplyr::select(exp, PID.count_sum, aaSeqCDR3) %>%
   spread(exp, PID.count_sum, fill = 0) %>%
   column_to_rownames("aaSeqCDR3") %>%
   as.list()
@@ -524,32 +657,47 @@ typeof(counts_list[1])
 
 sum(counts_list[[1]])
 
-size_list <- map(counts_list, sum)
+size_list <- purrr::map(counts_list, sum)
 
-sample_list <- map(size_list, seq, from = 1, by = 1000)
+sample_list <- purrr::map(size_list, seq, from = 1, by = 1000)
 
 plan(multiprocess)
 
 counts_rarefy_list <- future_map2(counts_list, sample_list, rarefy)
 
 counts_rarefy_df <- counts_rarefy_list %>%
-  map(t) %>%
-  map(as.data.frame) %>%
-  map(rownames_to_column) %>%
+  purrr::map(t) %>%
+  purrr::map(as.data.frame) %>%
+  purrr::map(rownames_to_column) %>%
   bind_rows(.id = "exp") %>%
   factor_extractor() %>%
   mutate(rowname = str_remove(rowname, "N") %>% as.numeric())
 
+counts_rarefy_df$timepoint <- if_else(counts_rarefy_df$timepoint == "0", "Pre CPB",
+                             if_else(counts_rarefy_df$timepoint == "2", "day 2",
+                                     if_else(counts_rarefy_df$timepoint == "4", "day 4", "day 6")))
+
+counts_rarefy_df$timepoint <- factor(counts_rarefy_df$timepoint, levels = c("Pre CPB", "day 2", "day 4", "day 6", ordered = T))
+
+counts_rarefy_df$response <- factor(counts_rarefy_df$response, levels = c("NR", "RS"), ordered = T)
+
 library(scales)
 
-ggplot(counts_rarefy_df %>% filter(exp != "AB1_2_39_RS_4"), aes(rowname, V1, group = exp, colour = response)) +
+summary3 <- ggplot(counts_rarefy_df, aes(rowname, V1, group = exp, colour = response)) +
   geom_line() +
-  scale_x_continuous(labels = scientific) +
+  labs(x = "total clones", y = "unique clones", title = "B") +
+  facet_grid(model ~ timepoint) +
+  theme_bw() +
   theme(legend.position = "none", axis.text.x = element_text(angle = 90)) +
-  labs(x = "sample size", y = "species") +
-  facet_grid(model ~ timepoint)
+  coord_cartesian(xlim = c(0, max(counts_rarefy_df$rowname)), ylim = c(0, 15000)) +
+  response_colour_scale
 
 rm(counts, counts_list, counts_rarefy_df, counts_rarefy_list, raremax)
+
+grd_layout <- rbind(c(1, 1, 2),
+                    c(1, 1, 2))
+
+grid.arrange(summary2, summary1, layout_matrix = grd_layout)
 
 #####
 #network statistics
