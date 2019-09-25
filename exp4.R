@@ -4,8 +4,10 @@
 
 factors = c("jkexp",      "mouse",      "tissue",     "flank",      "population")
 
-fig1 <- bind_rows(read.csv(file.path(getwd(), "4_1_0", "tumour_growth.csv"), stringsAsFactors = F),
-                   read.csv(file.path(getwd(), "4_2_0", "tumour_growth.csv"), stringsAsFactors = F)) %>%
+working_path <- file.path(getwd(), "experiments")
+
+fig1 <- bind_rows(read.csv(file.path(working_path, "4_1_0", "tumour_growth.csv"), stringsAsFactors = F),
+                   read.csv(file.path(working_path, "4_2_0", "tumour_growth.csv"), stringsAsFactors = F)) %>%
   unite("exp", Expt.ID, mouse, flank, sep = "_", remove = F)
 
 jk4 <- bind_rows(jk41, jk42) %>%
@@ -21,7 +23,8 @@ jk4_sort <- list(jk41 = read.csv("D:/data/experiments/4_1_0/sort_data.csv", stri
 jk4_summary <- list(jk41 = read.csv("D:/data/experiments/4_1_0/summary_stats.csv"),
                     jk42 = read.csv("D:/data/experiments/4_2_0/summary_stats.csv")) %>%
   map(factor_extractor) %>%
-  bind_rows(.id = "treated")
+  bind_rows(.id = "treated") %>%
+  mutate(population = if_else(str_detect(population, "4"), "CD4", "CD8"))
 #####
 # figure 1
 #####
@@ -32,24 +35,31 @@ sequenced_only <- jk4_summary %>%
   unite("exp", sep = "_")
 
 fig1A <- fig1 %>%
-  right_join(sequenced_only)
+  right_join(sequenced_only) %>%
+  group_by(day, Expt.ID) %>%
+  mutate(mean_tg = mean(tumour_size),
+         sd_tg = sd(tumour_size))
 
 table(fig1A$Expt.ID, fig1A$mouse)
 
-fig1A$Expt.ID[fig1A$Expt.ID == "JK4.1"] <- "untreated"
+fig1A$Expt.ID[fig1A$Expt.ID == "JK4.1"] <- "control"
 
 fig1A$Expt.ID[fig1A$Expt.ID == "JK4.2"] <- "OX-40 + CTLA-4"
 
 ggplot(fig1A, aes(day, tumour_size, group = exp, colour = Expt.ID)) +
-  geom_line() +
-  theme(legend.title = element_blank(),
-        axis.line = element_line()) +
+  geom_errorbar(aes(ymin = mean_tg - sd_tg, 
+                    ymax = mean_tg + sd_tg, 
+                    group = interaction(day, Expt.ID))) +
+  geom_smooth(aes(group = Expt.ID)) +
   labs(y = "tumour size mm^2", x = "days post inoculation", title = "A") +
   geom_vline(xintercept = 10, linetype = 2) +
   geom_vline(xintercept = 13, linetype = 2) +
   scale_x_continuous(breaks = seq(from = min(fig1A$day), to = max(fig1A$day), by = 2)) +
   scale_y_continuous(breaks = seq(from = 0, to = 60, by = 10),
-                     labels = c(0, "", 20, "", 40, "", 60))
+                     labels = c(0, "", 20, "", 40, "", 60)) +
+  theme_bw() +
+  theme(legend.title = element_blank(),
+        axis.line = element_line())
 
 fig1A %>%
   filter(day == 14) %>%
@@ -80,6 +90,90 @@ jk4_m <- jk4_8 %>%
          same_exp = if_else(exp1 == exp2, T, F),
          population = if_else(str_detect(.$from, "CD4"), "CD4", "CD8"))
 
+index_lim <- 0.15
+
+jk4.1_4_net <- jk4_m %>%
+  filter(exp1 == "JK4.1", population == "CD4", same_exp, index > index_lim) %>%
+  select(from, to, index) %>%
+  graph_from_data_frame(vertices = jk4_m %>%
+                          filter(exp1 == "JK4.1", population == "CD4", same_exp, index > index_lim) %>%
+                          gather("tmp", "mouse", from, to) %>%
+                          select("exp" = mouse) %>%
+                          distinct() %>%
+                          factor_extractor())
+
+jk4.1_4_grob <- ggnet2(jk4.1_4_net, 
+       color = V(jk4.1_4_net)$mouse, 
+       shape = V(jk4.1_4_net)$flank,
+       color.palette = "Dark2",
+       size = 7) +
+  guides(shape = "none") +
+  theme(legend.position = "bottom",
+        panel.background = element_rect(colour = "black"))
+
+jk4.1_8_net <- jk4_m %>%
+  filter(exp1 == "JK4.1", population == "CD8", same_exp, index > index_lim) %>%
+  select(from, to, index) %>%
+  graph_from_data_frame(vertices = jk4_m %>%
+                          filter(exp1 == "JK4.1", population == "CD8", same_exp, index > index_lim) %>%
+                          gather("tmp", "mouse", from, to) %>%
+                          select("exp" = mouse) %>%
+                          distinct() %>%
+                          factor_extractor())
+
+jk4.1_8_grob <- ggnet2(jk4.1_8_net, color = V(jk4.1_8_net)$mouse, shape = V(jk4.1_8_net)$flank,
+       color.palette = "Dark2",
+       size = 7) +
+  guides(shape = "none") +
+  theme(legend.position = "bottom",
+        panel.background = element_rect(colour = "black"))
+
+jk4.2_4_net <- jk4_m %>%
+  filter(exp1 == "JK4.2", population == "CD4", same_exp, index > index_lim) %>%
+  select(from, to, index) %>%
+  graph_from_data_frame(vertices = jk4_m %>%
+                          filter(exp1 == "JK4.2", population == "CD4", same_exp, index > index_lim) %>%
+                          gather("tmp", "mouse", from, to) %>%
+                          select("exp" = mouse) %>%
+                          distinct() %>%
+                          factor_extractor())
+
+jk4.2_4_grob <- ggnet2(jk4.2_4_net, color = V(jk4.2_4_net)$mouse, shape = V(jk4.2_4_net)$flank,
+       color.palette = "Dark2",
+       size = 7) +
+  guides(shape = "none") +
+  theme(legend.position = "top",
+        panel.background = element_rect(colour = "black"))
+
+jk4.2_8_net <- jk4_m %>%
+  filter(exp1 == "JK4.2", population == "CD8", same_exp, index > index_lim) %>%
+  select(from, to, index) %>%
+  graph_from_data_frame(vertices = jk4_m %>%
+                          filter(exp1 == "JK4.2", population == "CD8", same_exp, index > index_lim) %>%
+                          gather("tmp", "mouse", from, to) %>%
+                          select("exp" = mouse) %>%
+                          distinct() %>%
+                          factor_extractor())
+
+jk4.2_8_grob <- ggnet2(jk4.2_8_net, color = V(jk4.2_8_net)$mouse, shape = V(jk4.2_8_net)$flank,
+       color.palette = "Dark2",
+       size = 7) +
+  guides(shape = "none") +
+  theme(legend.position = "top",
+        panel.background = element_rect(colour = "black"))
+
+l_matrix <- rbind(c(1, 1, 2, 2), 
+            c(1, 1, 2, 2))
+
+grid.arrange(fig1_b, 
+             grid.arrange(jk4.2_4_grob, 
+             jk4.2_8_grob, 
+             jk4.1_4_grob, 
+             jk4.1_8_grob, 
+             top = text_grob("C", x = 0, hjust = 0, face = "bold")),
+             layout_matrix = l_matrix,
+             ncol = 2)
+
 jk4_m_anti <- jk4_m %>%
   filter(same_mouse == F & same_exp == T) %>%
   anti_join(jk4_m %>% filter(exp1 == "JK4.1", population == "CD4", same_mouse == F, same_exp == T) %>% dplyr::sample_n(54)) %>%
@@ -87,23 +181,26 @@ jk4_m_anti <- jk4_m %>%
   anti_join(jk4_m %>% filter(exp1 == "JK4.2", population == "CD4", same_mouse == F & same_exp == T) %>% dplyr::sample_n(54)) %>%
   anti_join(jk4_m %>% filter(exp1 == "JK4.2", population == "CD8", same_mouse == F & same_exp == T) %>% dplyr::sample_n(54))
 
-jk4_m <- jk4_m %>%
+jk4_mf <- jk4_m %>%
   filter(same_mouse == T) %>%
   bind_rows(jk4_m_anti) %>%
   select(from, to, index, same_mouse) %>%
   separate(from, into = c("exp", NA, NA, NA, "population"), remove = F, sep = "_")
 
-jk4_m$exp <- if_else(jk4_m$exp == "JK4.1", "untreated", "aCTLA-4 + aOX-40")
+jk4_mf$exp <- if_else(jk4_mf$exp == "JK4.1", "control", "aCTLA-4 + aOX-40")
 
-ggplot(jk4_m, aes(same_mouse, index, fill = same_mouse)) +
+fig1_b <- ggplot(jk4_mf, aes(same_mouse, index, fill = same_mouse)) +
   geom_boxplot(outlier.shape = NA) +
   geom_jitter(height = 0, width = 0.1) +
   facet_grid(exp ~ population) +
-  stat_compare_means(label.x = 1.5, label = "p.format") +
+  stat_compare_means(label.x = 1.5, label = "p.signif") +
+  theme_bw() +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank(),
         legend.title = element_blank()) +
-  scale_fill_discrete(labels = c("between", "within"))
+  scale_fill_manual(labels = c("between", "within"),
+                      values = c("slateblue", "chartreuse3")) +
+  labs(title = "B")
 
 #####
 

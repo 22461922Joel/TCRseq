@@ -5,7 +5,7 @@ working_path <- file.path(getwd(), "experiments/RNAseq")
 data <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
                   read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
   factor_extractor() %>%
-  filter(!str_detect(v_gene, "TRA")) %>%
+  filter(!str_detect(v_gene, "TRA"), v_gene == "TRBV19", model == "AB1") %>%
   data_aa() %>%
   factor_extractor() %>%
   group_by(exp) %>%
@@ -637,10 +637,13 @@ summary2 <- ggplot(summary, aes(evenness, richness, colour = response)) +
   scale_y_log10(breaks = c(500, 2000, 8000, 32000, 128000)) +
   scale_x_log10(breaks = c(190000, 19000, 1900)) +
   facet_grid(model ~ timepoint) +
-  labs(y = "unique clones", x = "total clones", title = "A") +
+  scale_colour_manual(labels = c("NR" = "non-responder",
+                                 "RS" = "responder"),
+                      values = c("NR" = "firebrick1",
+                                          "RS" = "deepskyblue1")) +
+  labs(y = "unique clones", x = "total clones") +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "none") +
-  response_colour_scale
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.title = element_blank())
 
 
 #####
