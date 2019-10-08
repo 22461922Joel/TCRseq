@@ -5,148 +5,422 @@ working_path <- file.path(getwd(), "experiments/RNAseq")
 data <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
                   read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
   factor_extractor() %>%
-  filter(!str_detect(v_gene, "TRA"), v_gene == "TRBV19", model == "AB1") %>%
+  filter(!str_detect(v_gene, "TRA")) %>%
   data_aa() %>%
   factor_extractor() %>%
   group_by(exp) %>%
   mutate(PID.fraction = PID.count_sum/sum(PID.count_sum))
 
-length(unique(data$exp))
+#####
+# working on V and J gene usage between responders and non responders
+#####
 
-data_bar <- data %>%
-  group_by(exp) %>%
-  group_split() %>%
-  map(arrange, exp, desc(PID.count_sum)) %>%
-  map(rownames_to_column, "rank") %>%
-  bind_rows() %>%
-  mutate(rank = as.numeric(rank))
+library(missMDA)
 
-tmp <- data_bar %>%
-  filter(rank > 10) %>%
-  group_by(exp) %>%
-  summarise(PID.count_sum = sum(PID.count_sum),
-            rank = 11,
-            aaSeqCDR3 = "others")
-
-data_bar_Reduced <- data_bar %>%
-  filter(rank < 11) %>%
-  bind_rows(tmp) %>%
+data_vj <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
+                  read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
   factor_extractor() %>%
-  group_by(exp, response) %>%
-  mutate(PID.fraction = PID.count_sum/sum(PID.count_sum),
-         aaSeqCDR3 = factor(aaSeqCDR3, levels = reorder(aaSeqCDR3, rank)),
-         response_l = if_else(response == "RS", T, F))
-
-ggplot(data_bar_Reduced, aes(fct_reorder2(exp, response, PID.fraction) %>% fct_reorder(response), PID.fraction, fill = fct_reorder(as.character(rank), rank))) +
-  geom_bar(stat = "identity", colour = "black") +
-  theme(legend.position = "none", axis.text.x = element_blank()) +
-  scale_fill_viridis_d() +
-  facet_wrap(~ model + timepoint, scales = "free", ncol = 4)
-
-ggplot(data, aes(PID.count)) +
-  geom_histogram(aes(y = stat(count))) +
-  geom_point(aes(y = stat(count)))
-
-data_clustered <- data %>%
-  left_join(as.data.frame(pid_clusters)) %>%
-  arrange(desc(PID.fraction), desc(PID_cluster))
-
-data_hmm <- data %>%
-  full_join(read_csv(file.path(getwd(), "experiments/RNAseq/hmmsearch_left_join.csv"))) %>%
-  group_by(exp, aaSeqCDR3) %>%
-  mutate(hmm_filter = best_domain_evalue == min(best_domain_evalue)) %>%
-  filter(hmm_filter | is.na(hmm_filter))
-
-cluster4_5 <- data_hmm %>%
-  filter(hmm_cluster == 4 | hmm_cluster == 5) %>%
-  factor_extractor()
-
-cluster4_full <- cluster4_5 %>%
-  dplyr::select(-best_domain_evalue, 
-                -model, 
-                -response, 
-                -timepoint,
-                -primer, 
-                -mouse, 
-                -n_nuc, 
-                -PID.fraction_sum, 
-                -query_name) %>%
-  spread(aaSeqCDR3, PID.count_sum)
-
-cluster4_full[is.na(cluster4_full)] <- 0
-
-cluster4_full <- cluster4_full %>%
-  gather("aaSeqCDR3", "PID.count", -exp, -hmm_cluster) %>%
-  factor_extractor()
-
-ggplot(cluster4_full, aes(reorder(exp, PID.count), PID.count, group = interaction(aaSeqCDR3, as.character(hmm_cluster)))) +
-  geom_area(aes(fill = hmm_cluster), position = "stack") +
-  scale_color_brewer() +
-  geom_line(position = "stack", colour = "black") +
-  theme(legend.position = "none", axis.text.x = element_blank()) +
-  facet_wrap(~ response + model + timepoint, scales = "free_x", ncol = 4)
-
-data_hmm_reduced_RS_AB1_0 <- data_hmm %>%
-  filter(response == "RS", model == "AB1", timepoint == 0) %>%
-  group_by(hmm_cluster, exp) %>%
-  dplyr::summarise(PID.count = sum(PID.count_sum)) %>%
-  ungroup() %>%
-  mutate(hmm_cluster = paste("h", hmm_cluster, sep = "")) %>%
-  group_by(hmm_cluster) %>%
-  mutate(n_mice = n_distinct(exp),
-         hmm_var = var(PID.count)) %>%
-  filter(!is.na(hmm_cluster), n_mice > 4, hmm_var > 1) %>%
-  dplyr::select(-n_mice, -hmm_var) %>%
-  spread(hmm_cluster, PID.count)
-
-data_hmm_reduced_RS_AB1_0 <- data_hmm_reduced_RS_AB1_0 %>%
+  filter(!str_detect(v_gene, "TRA"), model == "AB1", timepoint == "0") %>%
+  group_by(exp, v_gene, j_gene) %>%
+  summarise(PID.count = sum(PID.count)) %>%
+  filter(v_gene != "TRBV9", 
+         v_gene != "TRBV8", 
+         v_gene != "TRBV21", 
+         v_gene != "TRBV23", 
+         v_gene != "TRBV10", 
+         j_gene != "TRBJ1-7", 
+         j_gene != "TRBJ2-6") %>%
+  unite("v_j", v_gene, j_gene, sep = "_") %>%
+  group_by(exp) %>%
+  mutate(PID.fraction = PID.count/sum(PID.count)) %>%
+  select(-PID.count) %>%
+  spread(v_j, PID.fraction) %>%
   column_to_rownames("exp")
 
-cor_ncp <- estim_ncpPCA(data_hmm_reduced_RS_AB1_0, method.cv = "Kfold")
+library(ggcorrplot)
 
-cor_impute <- imputePCA(data_hmm_reduced_RS_AB1_0[,-1])
+vj_corr <- cor(data_vj)
 
-estim_ncpPCA(orange)
+ggcorrplot(vj_corr, type = "upper") +
+  theme(axis.text = element_blank())
 
-cor(data_hmm_reduced_RS_AB1_0[,2:50])
+corr_graph <- vj_corr[lower.tri(vj_corr)] %>%
+  as.data.frame() %>%
+  mutate(from = CombSet(colnames(vj_corr), m = 2)[,1],
+         to = CombSet(colnames(vj_corr), m = 2)[,2]) %>%
+  na.omit()
 
-t_test_results <- matrix(nrow = length(data_hmm_reduced_RS_AB1), ncol = length(data_hmm_reduced_RS_AB1))
+names(corr_graph) <- c("weight", "from", "to")
 
-for (i in 1:length(data_hmm_reduced_RS_AB1)) {
-  for (j in 1:length(data_hmm_reduced_RS_AB1)) {
-    t_test_results[i,j] <- if_else(i < j, 
-                                   t.test(data_hmm_reduced_RS_AB1[[i]]$PID.count_sum, data_hmm_reduced_RS_AB1[[j]]$PID.count_sum)$p.value, 
-                                   as.double(0))
-  }
+corr_graph <- corr_graph %>%
+  select(from, to, weight) %>%
+  filter(weight > 0.5) %>%
+  graph_from_data_frame()
+
+ggnet2(corr_graph, size = "degree")
+
+V(corr_graph)[degree(corr_graph) == max(degree(corr_graph))]
+
+nb <- estim_ncpPCA(data_vj)
+
+data_vj.comp <- imputePCA(as.data.frame(data_vj), ncp = if_else(nb$ncp == 0, 2, as.double(nb$ncp)))$completeObs %>%
+  scale() %>%
+  as.data.frame() %>%
+  rownames_to_column("exp") %>%
+  factor_extractor()
+
+data_vj_pca <- prcomp(data_vj.comp[-1:-6])
+
+library(ggfortify)
+
+autoplot(data_vj_pca, loadings = F, loadings.label = F, data = data_vj.comp, shape = "timepoint", colour = "response", size = 3) +
+  theme_bw()
+
+# heirarchical clustering for VJ genes and response
+
+library(BBmisc)
+
+model_tp_filter <- function(data) {
+  data %>%
+  filter(model == "RENCA", timepoint == "6")
 }
 
-names_vec <- unique(paste(data_hmm_reduced_RS_AB1$hmm_cluster, "_", data_hmm_reduced_RS_AB1$timepoint, sep = ""))
+data_vj <- bind_rows(read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp15b_Joost_final/cleaned_CDR3s.csv")),
+                     read_csv(file.path(getwd(), "experiments/RNAseq/1239Shp19 Final MixCR analysis//cleaned_CDR3s.csv"))) %>%
+  factor_extractor() %>%
+  filter(!str_detect(v_gene, "TRA")) %>%
+  model_tp_filter %>%
+  group_by(exp, v_gene, j_gene) %>%
+  summarise(PID.count = sum(PID.count)) %>%
+  filter(v_gene != "TRBV9", 
+         v_gene != "TRBV8", 
+         v_gene != "TRBV21", 
+         v_gene != "TRBV23", 
+         v_gene != "TRBV10", 
+         j_gene != "TRBJ1-7", 
+         j_gene != "TRBJ2-6") %>%
+  unite("v_j", v_gene, j_gene, sep = "_") %>%
+  group_by(exp) %>%
+  spread(v_j, PID.count) %>%
+  BBmisc::normalize()
 
-colnames(t_test_results) <- names_vec
+data_vj[is.na(data_vj)] <- 0
 
-rownames(t_test_results) <- names_vec
+x1 <- data_vj %>%
+  factor_extractor() %>%
+  ungroup() %>%
+  dplyr::select(-exp, -timepoint, -primer, -model, -response) %>%
+  column_to_rownames("mouse") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
 
-length(unique(data_hmm_reduced$hmm_cluster))
+y1 <- data_vj %>%
+  gather("v_j_gene", "PID.count", -exp) %>%
+  spread(exp, PID.count) %>%
+  column_to_rownames("v_j_gene") %>%
+  BBmisc::normalize() %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
 
-library(gganimate)
+x_dend <- ggplotGrob(x1 %>%
+                       ggdendrogram() +
+                       theme_void())
 
-hmm_animate <- ggplot(data = data_hmm_reduced, aes(factor(hmm_cluster), PID.count, colour = response, group = hmm_cluster)) +
-  geom_point() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  response_colour_scale +
-  facet_wrap(~ model, scales = "free") +
-  transition_states(states = timepoint) +
-  ease_aes("cubic-in-out") +
-  ggtitle("Timepoint {closest_state}")
+y1_placement <- dendro_data(y1)$labels$label
 
-ggplot(data_hmm_reduced, aes(timepoint, PID.count, group = interaction(hmm_cluster, response), shape = response)) +
-  geom_point(aes(colour = n_mice), size = 3) +
-  geom_line() +
+x1_placement <- dendro_data(x1)$labels$label
+
+x_df_hm <- data_vj %>%
+  gather("v_j_gene", "PID.count", -exp) %>%
+  factor_extractor() %>%
+  mutate(mouse = factor(mouse, levels = x1_placement),
+         v_j_gene = factor(v_j_gene, levels = y1_placement),
+         dummy = 1) %>%
+  distinct()
+
+x_rs <- ggplotGrob(x_df_hm %>%
+                     dplyr::select(exp, response, dummy) %>%
+                     distinct() %>%
+                     ggplot(aes(exp, dummy)) +
+                     geom_tile(aes(fill = response)) +
+                     theme_void() +
+                     scale_fill_manual(guide = F, values = c("NR" = "firebrick1",
+                                                             "RS" = "deepskyblue1"),
+                                       labels = c("NR" = "non-responder",
+                                                  "RS" = "responder")))
+
+x_gg <- ggplotGrob(x_df_hm %>%
+                     ggplot(aes(mouse, v_j_gene)) +
+                     geom_tile(aes(fill = PID.count)) +
+                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+                     scale_fill_viridis_c(name = "Z score") +
+                     labs(y = "V-J pair"))
+
+panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+
+x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+
+x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+
+grid.newpage()
+
+grid.draw(x_gg)
+
+remove(x_gg, panel_id, x_rs, x_df_hm, x_dend, y1, x1)
+
+#####
+# get the threshold 0 and 1 clusters ready for joining to the entire dataset and making the final product, data_hmm
+#####
+
+T0_hmm <- read_csv(file.path(working_path, "T0_hmmsearch_left_join.csv")) %>%
+  distinct() %>%
+  group_by(aaSeqCDR3) %>%
+  mutate(match_filter = best_domain_evalue == min(best_domain_evalue)) %>%
+  filter(match_filter) %>%
+  mutate(n_seq = n(),
+         lowest_hmm = hmm_cluster == min(hmm_cluster)) %>%
+  filter(lowest_hmm) %>%
+  select(-lowest_hmm, -match_filter, -n_seq)
+
+T1_hmm <- read_csv(file.path(getwd(), "experiments/RNAseq/hmmsearch_left_join.csv")) %>%
+  distinct() %>%
+  group_by(aaSeqCDR3) %>%
+  mutate(match_filter = best_domain_evalue == min(best_domain_evalue)) %>%
+  filter(match_filter) %>%
+  mutate(n_seq = n(),
+         lowest_hmm = hmm_cluster == min(hmm_cluster)) %>%
+  filter(lowest_hmm) %>%
+  select(-lowest_hmm, -match_filter, -n_seq)
+
+names(T0_hmm) <- c("aaSeqCDR3", "T0_query_name", "T0_best_domain_evalue", "T0_hmm_cluster")
+
+names(T1_hmm) <- c("aaSeqCDR3", "T1_query_name", "T1_best_domain_evalue", "T1_hmm_cluster")
+
+data_hmm <- data %>%
+  left_join(T1_hmm) %>%
+  left_join(T0_hmm) %>%
+  left_join(read_csv(file.path(working_path, "ed1_greedy_clusters.csv"))) %>%
+  left_join(read_csv(file.path(working_path, "ed0_greedy_clusters.csv")))
+#####
+# directing a network of a significant cluster to see how the CDR3s move through time as well as by edit distance of 1 or less
+#####
+
+clust_4 <- data_hmm %>%
+  filter(T1_hmm_cluster == 4) %>%
+  ungroup() %>%
+  select(aaSeqCDR3, timepoint) %>%
+  group_by(timepoint) %>%
+  group_split() %>%
+  map(distinct)
+
+clust_4_dist <- stringdist::stringdistmatrix(clust_4[[3]]$aaSeqCDR3, clust_4[[4]]$aaSeqCDR3, method = "lv")
+
+colnames(clust_4_dist) <- clust_4[[4]]$aaSeqCDR3
+
+row.names(clust_4_dist) <- clust_4[[3]]$aaSeqCDR3
+
+clust_4_dist_df_3 <- clust_4_dist %>%
+  as.data.frame() %>%
+  rownames_to_column("from") %>%
+  gather("to", "edit_distance", -from) %>%
+  filter(edit_distance <= 1) %>%
+  mutate(timepoint = 3)
+
+clust_4_dist_df_2 <- clust_4_dist %>%
+  as.data.frame() %>%
+  rownames_to_column("from") %>%
+  gather("to", "edit_distance", -from) %>%
+  filter(edit_distance <= 1) %>%
+  mutate(timepoint = 2)
+
+clust_4_dist_df <- clust_4_dist %>%
+  as.data.frame() %>%
+  rownames_to_column("from") %>%
+  gather("to", "edit_distance", -from) %>%
+  filter(edit_distance <= 1) %>%
+  mutate(timepoint = 1)
+
+clust_4_graph <- reduce(list(clust_4_dist_df, clust_4_dist_df_2, clust_4_dist_df_3), bind_rows) %>%
+  graph_from_data_frame()
+
+l <- layout_in_circle(clust_4_graph)
+
+plot(clust_4_graph, 
+     vertex.label = NA, 
+     edge.arrow.size = .2, 
+     vertex.size = 5, 
+     edge.color = E(clust_4_graph)$timepoint,
+     layout = l)
+
+#####
+#####
+# checking heirarchical clustering of clusters
+#####
+
+library(BBmisc)
+
+x_df <- data_hmm %>%
+  filter(timepoint == "6" & model == "RENCA") %>%
+  group_by(exp, T0_hmm_cluster) %>%
+  summarise(count = sum(PID.count_sum)) %>%
+  na.omit() %>%
+  mutate(fraction = count/sum(count)) %>%
+  select(-fraction) %>%
+  group_by(T0_hmm_cluster) %>%
+  filter(n() == 14) %>%
+  spread(T0_hmm_cluster, count) %>%
+  BBmisc::normalize() %>%
+  gather("T0_hmm_cluster", "fraction", -exp)
+
+x1 <- x_df %>%
+  spread(T0_hmm_cluster, fraction) %>%
+  factor_extractor() %>%
+  dplyr::select(-exp, -timepoint, -primer, -model, -response) %>%
+  column_to_rownames("mouse") %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+x_df_na <- x_df
+
+x_df_na$fraction[is.na(x_df_na$fraction)] <- 0
+
+y1 <- x_df_na %>%
+  spread(exp, fraction) %>%
+  column_to_rownames("T0_hmm_cluster") %>%
+  BBmisc::normalize() %>%
+  dist() %>%
+  hclust(method = "complete") %>%
+  as.dendrogram()
+
+x_dend <- ggplotGrob(x1 %>%
+                       ggdendrogram() +
+                       theme_void())
+
+y1_placement <- dendro_data(y1)$labels$label
+
+x1_placement <- dendro_data(x1)$labels$label
+
+x_df_hm <- x_df %>%
+  factor_extractor() %>%
+  mutate(mouse = factor(mouse, levels = x1_placement),
+         T0_hmm_cluster = factor(T0_hmm_cluster, levels = y1_placement),
+         dummy = 1) %>%
+  distinct()
+
+x_rs <- ggplotGrob(x_df_hm %>%
+                     dplyr::select(exp, response, dummy) %>%
+                     distinct() %>%
+                     ggplot(aes(exp, dummy)) +
+                     geom_tile(aes(fill = response)) +
+                     theme_void() +
+                     scale_fill_manual(guide = F, values = c("NR" = "firebrick1",
+                                                             "RS" = "deepskyblue1"),
+                                       labels = c("NR" = "non-responder",
+                                                  "RS" = "responder")))
+
+x_gg <- ggplotGrob(x_df_hm %>%
+                     ggplot(aes(mouse, T0_hmm_cluster)) +
+                     geom_tile(aes(fill = fraction)) +
+                     theme(axis.text.x = element_text(angle = 90), axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+                     scale_fill_viridis_c(name = "Z score") +
+                     labs(y = "TCRb CDR3 sequence"))
+
+panel_id <- x_gg$layout[x_gg$layout$name == "panel", c("t", "l", "b")]
+
+x_gg <- gtable_add_rows(x_gg, heights = unit(c(1, 0.3), "in"), 0)
+
+x_gg <- gtable_add_grob(x_gg, grobs = list(x_dend, x_rs), t = c(1, 2), l = c(panel_id$l, panel_id$l), b = c(1, panel_id$b))
+
+grid.newpage()
+
+grid.draw(x_gg)
+
+remove(x_gg, panel_id, x_rs, x_df_hm, x_dend, y1, x1, x_df_na, x_df)
+
+#####
+# figuring out what clusters only belong to responders
+#####
+
+clust_res_freqtable <- table(data_hmm$response, data_hmm$T0_hmm_cluster)
+
+clust_res_df <- as.data.frame.table(clust_res_freqtable) %>%
+  spread(Var1, Freq) %>%
+  mutate(dif = RS - NR) %>%
+  filter(dif > 100 | dif < 0)
+
+ggplot(clust_res_df, aes(Var2, dif)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#####
+# for 1 cluster find the distribution of clones that make up that cluster over time
+#####
+
+cluster5 <- data_hmm %>%
+  filter(T1_hmm_cluster == 5) %>%
+  factor_extractor()
+
+cluster5_full <- cluster5 %>%
+  dplyr::select(aaSeqCDR3, PID.count_sum, PID_cluster, exp) %>%
+  spread(aaSeqCDR3, PID.count_sum)
+
+cluster5_full[is.na(cluster5_full)] <- 0
+
+cluster5_full <- cluster5_full %>%
+  gather("aaSeqCDR3", "PID.count", -exp, -PID_cluster) %>%
+  factor_extractor() %>%
+  filter(model == "RENCA")
+
+ggplot(cluster5_full, aes(reorder(exp, PID.count), PID.count, group = interaction(aaSeqCDR3, as.character(PID_cluster)))) +
+  geom_area(aes(fill = aaSeqCDR3), position = "stack") +
+  scale_color_brewer() +
+  geom_line(position = "stack", colour = "black") +
   theme_bw() +
-  scale_colour_viridis_c() +
-  facet_wrap(model ~ hmm_cluster, ncol = 8)
+  theme(legend.position = "none", axis.text.x = element_blank()) +
+  facet_wrap(~ response + timepoint, scales = "free_x", ncol = 4) +
+  labs(x = "mouse", y = "RNA transcripts from cluster 5")
 
-animate(hmm_animate)
+#####
+# trying to get all the top clusters mapped by the top clone of every mouse
+#####
+
+test_dat <- data_hmm %>%
+  filter(model == "RENCA") %>%
+  group_by(exp) %>%
+  filter(PID.count_sum == max(PID.count_sum)) %>%
+  ungroup() %>%
+  select(T0_hmm_cluster) %>%
+  unique()
+
+top_dat_AB1 <- data_hmm %>%
+  inner_join(test_dat) %>%
+  filter(!is.na(T0_hmm_cluster), model == "RENCA") %>%
+  select(PID.count_sum, T0_hmm_cluster, exp, aaSeqCDR3) %>%
+  spread(T0_hmm_cluster, PID.count_sum)
+
+top_dat_AB1[is.na(top_dat_AB1)] <- 0
+
+top_dat_AB1 <- top_dat_AB1 %>%
+  gather("T0_hmm_cluster", "PID.count_sum", -exp, -aaSeqCDR3) %>%
+  group_by(exp, T0_hmm_cluster) %>%
+  summarise(PID.count_sum = sum(PID.count_sum)) %>%
+  factor_extractor()
+
+ggplot(top_dat_AB1, aes(reorder(exp, PID.count_sum), PID.count_sum, group = T0_hmm_cluster)) +
+  geom_area(aes(fill = T0_hmm_cluster), position = "stack") +
+  scale_fill_viridis_d() +
+  geom_line(position = "stack", colour = "black") +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~ response + timepoint, scales = "free_x", ncol = 4)
+
+#####
+#####
+# joining data to the McPAS database, code will need to be updated to work with newer raw data set
+#####
 
 data_McPAS <- data_hmm %>%
   left_join(hmmsearch_filtered) %>%
@@ -178,102 +452,46 @@ ggplot(data_McPAS, aes(n_mice, fill = response)) +
   labs(title = "check for groups of mice preferentially selecting Ag specific TCRs-experiment level") +
   facet_grid(model ~ timepoint)
 
-hmm_only <- data_hmm %>%
-  group_by(hmm_cluster) %>%
-  summarise(hmm_PID.count = sum(PID.count),
-            n_greedy_clusters = n_distinct(PID_cluster),
-            n_hmm_mice = n_distinct(exp),
-            mean_evalue = mean(best_domain_evalue)) %>%
-  na.omit()
+#####
+# make a plot looking at the top clusters used in both models with the number of mice involved 
+#####
 
-greedy_only <- data_hmm %>%
-  group_by(model, timepoint, PID_cluster, response) %>%
-  summarise(greedy_PID.count = sum(PID.count),
-            n_hmm_clusters = n_distinct(hmm_cluster),
-            n_greedy_mice = n_distinct(exp)) %>%
-  na.omit()
-
-ggplot(hmm_only, aes(n_greedy_clusters)) +
-  geom_histogram(binwidth = 1) +
-  labs(y = "count of hmm clusters with n greedy clusters", x = "n greedy clusters")
-
-ggplot(hmm_only, aes(n_greedy_clusters, mean_evalue)) +
-  geom_jitter() +
-  scale_y_log10()
-
-sum(data_hmm$PID.count)
-
-ggplot(data_hmm, aes(hmm_cluster)) +
-  geom_histogram()
-
-data_hmm_explore <- data_hmm %>%
-  filter(is.na(hmm_cluster) & is.na(PID_cluster))
-
-sum(data_hmm_explore$PID.count)
-
-mean(data_hmm_explore$best_domain_evalue)
-
-clust_dif <- data_clustered %>%
-  group_by(PID_cluster) %>%
-  summarise(n_mice = n_distinct(exp),
-            unique_clones = n_distinct(aaSeqCDR3),
-            total_clones = sum(PID.count)) %>%
-  group_by(PID_cluster) %>%
-  mutate(total_fraction = total_clones/sum(total_clones),
-         unique_fraction = unique_clones/sum(unique_clones)) %>%
-  na.omit()
-
-clust_NA <- clust_dif %>%
-  filter(is.na(PID_cluster))
-
-ggplot(clust_dif %>% na.omit(), aes(n_mice)) +
-  geom_density()
-
-ggplot(clust_dif %>% na.omit(), aes(n_mice)) +
-  geom_histogram(binwidth = 1) +
-  scale_x_continuous(breaks = seq(from = 0, to = max(clust_dif$n_mice), by = 8))
-
-data_clustered_reduced <- data_clustered %>%
-  group_by(PID_cluster) %>%
-  mutate(total_PID.count = sum(PID.count)) %>%
-  group_by(PID_cluster, model, timepoint, response) %>%
-  summarise(PID.count = sum(PID.count),
+data_clustered_reduced <- data_hmm %>%
+  group_by(T0_hmm_cluster) %>%
+  mutate(total_PID.count = sum(PID.count_sum)) %>%
+  group_by(T0_hmm_cluster, model, timepoint, response) %>%
+  summarise(PID.count = sum(PID.count_sum),
             n_mice = n_distinct(mouse),
             total_PID.count = mean(total_PID.count))
-
-test <- data_clustered_reduced %>% na.omit() %>% filter(total_PID.count > 50000)
 
 ggplot(data_clustered_reduced %>% 
          na.omit() %>% 
          filter(total_PID.count > 50000), aes(timepoint, 
                                               PID.count, 
-                                              group = interaction(PID_cluster, response), 
+                                              group = interaction(T0_hmm_cluster, response), 
                                               shape = response)) +
   geom_point(aes(colour = n_mice), size = 5) +
   theme(panel.background = element_rect(fill = "grey")) +
   geom_line() +
   scale_colour_viridis_c() +
-  facet_grid(model ~ PID_cluster) +
+  facet_grid(model ~ T0_hmm_cluster) +
   theme_bw()
 
-ggplot(data_clustered, aes(v_gene, j_gene)) +
-  stat_bin2d(aes(fill = stat(count))) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  scale_fill_viridis_c() +
-  facet_grid(response ~ model)
-
+#####
+# makes the images of the top culsters for each model. needs work because it hides how much any given
+# mouse has an effect on the total
+#####
 library(vegan)
 
 clust_ab1 <- data_hmm %>%
   filter(model == "AB1") %>%
-  group_by(hmm_cluster, response, timepoint, model) %>%
+  group_by(T0_hmm_cluster, response, timepoint, model) %>%
   summarise(mean_count = mean(PID.count_sum),
             sd_count = sd(PID.count_sum),
             PID.count = sum(PID.count_sum),
             n_mice = n_distinct(mouse)) %>%
   na.omit() %>%
-  group_by(hmm_cluster) %>%
+  group_by(T0_hmm_cluster) %>%
   mutate(filter_count = sum(PID.count),
          filter_mice = min(n_mice),
          w_sd = wisconsin(sd_count)) %>%
@@ -281,48 +499,47 @@ clust_ab1 <- data_hmm %>%
 
 length(unique(clust_ab1$hmm_cluster))
 
-ggplot(clust_ab1, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(hmm_cluster, response))) +
+ggplot(clust_ab1, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(T0_hmm_cluster, response))) +
   geom_point(aes(colour = n_mice), size = 4) +
   geom_line(colour = "black") +
   scale_colour_viridis_c() +
   theme_bw() +
   theme(panel.background = element_rect(colour = "grey51")) +
-  facet_wrap(~ hmm_cluster) +
+  facet_wrap(~ T0_hmm_cluster) +
   labs(title = "AB1")
 
-ggtern(clust_ab1, aes(x = wisconsin(mean_count), y = wisconsin(sd_count), z = wisconsin(PID.count), group = PID_cluster)) +
-  geom_point() +
-  scale_colour_viridis_c()
-
-clust_renca <- data_clustered %>%
+clust_renca <- data_hmm %>%
   filter(model == "RENCA") %>%
-  group_by(PID_cluster, response, timepoint, model) %>%
-  summarise(mean_count = mean(PID.count),
-            sd_count = sd(PID.count),
-            PID.count = sum(PID.count),
+  group_by(T1_hmm_cluster, response, timepoint, model) %>%
+  summarise(mean_count = mean(PID.count_sum),
+            sd_count = sd(PID.count_sum),
+            PID.count = sum(PID.count_sum),
             n_mice = n_distinct(mouse)) %>%
   na.omit() %>%
-  group_by(PID_cluster) %>%
+  group_by(T1_hmm_cluster) %>%
   mutate(filter_count = sum(PID.count),
          filter_mice = min(n_mice)) %>%
   filter(filter_count > (mean(.$filter_count) + (2 * sd(.$filter_count))), filter_mice >= 4)
 
 length(unique(clust_renca$PID_cluster))
 
-ggplot(clust_renca, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(PID_cluster, response))) +
+ggplot(clust_renca, aes(timepoint, PID.count, colour = n_mice, shape = response, group = interaction(T1_hmm_cluster, response))) +
   geom_point(aes(colour = n_mice), size = 4) +
   geom_line(colour = "black") +
   scale_colour_viridis_c() +
   theme_bw() +
   theme(panel.background = element_rect(colour = "grey51")) +
-  facet_wrap(~ PID_cluster) +
+  facet_wrap(~ T1_hmm_cluster) +
   labs(title = "RENCA")
 
+#####
+# makes the dimensionality reduction for the clusters 
+#####
 clust_pca_df <- data_hmm %>%
-  group_by(hmm_cluster, exp) %>%
-  summarise(PID.count = sum(PID.count)) %>%
+  group_by(T0_hmm_cluster, exp) %>%
+  summarise(PID.count = sum(PID.count_sum)) %>%
   na.omit() %>%
-  spread(hmm_cluster, PID.count, fill = 0) %>%
+  spread(T0_hmm_cluster, PID.count, fill = 0) %>%
   mutate_if(is.numeric, scale)
 
 clust_pca <- prcomp(clust_pca_df[,-1])
@@ -404,9 +621,12 @@ ggplot(clust_isoMDS_comps, aes(V1, V2, colour = model)) +
   labs(y = "MDS2", x = "MDS1", title = "A") +
   tumour_colour_scale
 
-cluster_1 <- data_hmm %>%
+#####
+# produce network of greedy clusters with how the hmm fit into them
+#####
+cluster_4 <- data_hmm %>%
   ungroup() %>%
-  filter(hmm_cluster == 4 & timepoint == 6) %>%
+  filter(PID_cluster == 4, !is.na(T0_hmm_cluster), T0_hmm_cluster < 200) %>%
   dplyr::select(aaSeqCDR3) %>%
   distinct() %>%
   mutate(residue_group = str_replace_all(aaSeqCDR3, c("[IV]" = "J", 
@@ -417,23 +637,39 @@ cluster_1 <- data_hmm %>%
                                                       "[LM]" = "Y",
                                                       "[ND]" = "Z")))
 
-cluster_1_dist_matrix <- data.frame(CombSet(cluster_1$aaSeqCDR3, m = 2), 
-                                    lv = stringdistmatrix(cluster_1$residue_group) %>%
+cluster_4_dist_matrix <- data.frame(CombSet(cluster_4$aaSeqCDR3, m = 2), 
+                                    lv = stringdistmatrix(cluster_4$residue_group) %>%
                                       as.vector()) %>%
   filter(lv < 2)
 
-table(cluster_1_dist_matrix$lv)
+table(cluster_4_dist_matrix$lv)
 
-cluster_1_graph <- graph_from_data_frame(cluster_1_dist_matrix, directed = F)
+cluster_4_vertices <- data_hmm %>%
+  ungroup() %>%
+  filter(PID_cluster == 4, !is.na(T0_hmm_cluster), T0_hmm_cluster < 200) %>%
+  select(aaSeqCDR3, T0_hmm_cluster, T0_cluster) %>%
+  distinct()
 
-E(cluster_1_graph)$color <- E(cluster_1_graph)$lv
+cluster_4_vertices$T0_hmm_cluster[is.na(cluster_4_vertices$T0_hmm_cluster)] <- "not assigned"
 
-V(cluster_1_graph)
+cluster_4_vertices$T0_cluster[is.na(cluster_4_vertices$T0_cluster)] <- "not assigned"
 
-E(cluster_1_graph)$color[E(cluster_1_graph)$color == 0] <- 3
+cluster_4_graph <- graph_from_data_frame(cluster_4_dist_matrix, directed = F, vertices = cluster_4_vertices)
 
-ggnet2(cluster_1_graph, edge.color = "color", node.size = 3)
+E(cluster_4_graph)$color <- E(cluster_4_graph)$lv
 
+V(cluster_4_graph)
+
+vertex.attributes(cluster_4_graph)
+
+E(cluster_4_graph)$color[E(cluster_4_graph)$color == 0] <- 3
+
+ggnet2(cluster_4_graph, edge.color = "color", node.size = 3, node.color = V(cluster_4_graph)$T0_hmm_cluster, edge.alpha = 0.5) +
+  scale_color_viridis_d()
+
+#####
+# produces volcano plot
+#####
 data_meta <- data_clustered %>%
   dplyr::select(model, timepoint, response, PID_cluster, PID.count, mouse) %>%
   group_by(model, timepoint, response, PID_cluster, mouse) %>%
@@ -488,111 +724,7 @@ ggplot(data_log2_foldchange, aes(NR, RS)) +
   scale_x_continuous(breaks = 2:8) +
   scale_y_continuous(breaks = 2:8)
 
-table(data_log2_foldchange$NR, data_log2_foldchange$RS)
-
-data_drilldown <- data_log2_foldchange %>%
-  filter(p.value < 0.05)
-
-data_required <- data %>%
-  left_join(all_clusters) %>%
-  factor_extractor() %>%
-  mutate(cluster = str_remove(cluster, "cluster") %>% as.numeric()) %>%
-  dplyr::select(model, timepoint, response, cluster, PID.fraction, mouse) %>%
-  group_by(model, timepoint, response, cluster) %>%
-  summarise(cluster_fraction = sum(PID.fraction)/124,
-            n_mice = n_distinct(mouse)) %>%
-  na.omit() %>%
-  group_by(cluster, model) %>%
-  mutate(n_groups = n_distinct(response)) %>%
-  filter(n_groups == 1)
-
-ggplot(data_required, aes(timepoint, cluster_fraction, colour = response, group = cluster)) +
-  geom_point() +
-  geom_line() +
-  facet_grid(model ~ response)
-
-data_logistic <- data %>%
-  left_join(all_clusters) %>%
-  factor_extractor() %>%
-  mutate(cluster = str_remove(cluster, "cluster") %>% as.numeric(),
-         response = if_else(response == "RS", 1, 0)) %>%
-  dplyr::select(model, timepoint, response, cluster, PID.fraction, mouse) %>%
-  group_by(model, timepoint, response, cluster, mouse) %>%
-  summarise(cluster_fraction = sum(PID.fraction)) %>%
-  group_by(cluster, model, timepoint, response) %>%
-  mutate(n_mice = n_distinct(mouse)) %>%
-  group_by(cluster, model, timepoint) %>%
-  mutate(n_groups = n_distinct(response),
-         m_mouse = if_else(min(n_mice) == 1 | min(n_groups) == 1, 1, as.double(min(n_mice)))) %>%
-  filter(m_mouse != 1) %>%
-  dplyr::select(-n_groups, -n_mice, -m_mouse) %>%
-  spread(cluster, cluster_fraction) %>%
-  group_by(model, timepoint) %>%
-  group_split()
-
-summary(data_logistic[[1]])
-
-library(Amelia)
-library(mlbench)
-library(VIM)
-library(FactoMineR)
-library(naniar)
-
-gg_miss_var(data_logistic[[1]])
-
-data_logistic[[1]] <- data_logistic[[1]][,colSums(is.na(data_logistic[[1]]))<nrow(data_logistic[[1]])]
-
-res <- summary(aggr(data_logistic[[1]], sortVar = T))$combinations
-
-head(res[rev(order(res[,2])),])
-
-matrixplot(data_logistic[[1]], sortby = 2)
-
-data_miss <- data.frame(is.na(data_logistic[[1]]))
-
-data_miss <- apply(X = data_miss, FUN = function(x) if(x) "m" else "o", MARGIN = c(1,2))
-
-res_mca <- MCA(data_miss, graph = F)
-
-plot(res_mca, invis = "ind", cex = 0.5)
-  
-data_l1 <- estim_ncpPCA(data_logistic[[1]][,5:25], method.cv = "Kfold")
-
-data_l1_complete <- imputePCA()
-
-missmap(data_logistic[[1]][,5:length(data_logistic[[1]])], col = c("blue", "red"), legend = F)
-
-model_null <- glm(response ~ 1, data = data_logistic[[1]], family = binomial(link = "logit"))
-
-model_full <- glm(response ~ `3` + `4` + `5` + `9` + `11` + `13` + `15`, data = data_logistic[[1]], family = binomial(link = "logit"))
-
-step(model_null, scope = list(upper = model_full), direction = "both", test = "Chisq", data = data_logistic[[1]])
-
-clusters_of_consequence <- all_clusters %>%
-  right_join(data_clustered) %>%
-  select(-clones, -repertoire_fraction)
-
-data_coc <- data %>%
-  left_join(clusters_of_consequence) %>%
-  factor_extractor() %>%
-  mutate(timepoint = as.numeric(timepoint)) %>%
-  group_by(response, timepoint, cluster, model) %>%
-  summarise(PID.fraction_sum = sum(PID.fraction)) %>%
-  na.omit()
-
-ggplot(data_meta, aes(clones, repertoire_fraction)) +
-  geom_point()
-
-table(data_clustered$timepoint, data_clustered$response, data_clustered$cluster)
-
-
-data_clustered %>%
-  filter(model == "AB1") %>%
-  ggplot(aes(timepoint, PID.fraction_sum, group = interaction(cluster, response), colour = as.character(cluster))) +
-  geom_line(aes(linetype = response), size = 2) +
-  theme() +
-  scale_colour_discrete(guide = F) +
-  facet_grid(. ~ response)
+#####
 
 heatmap_dendrogram(aa_data, "timepoint", "0", "response")
 # summary plots

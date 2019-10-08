@@ -1,5 +1,7 @@
 library(data.table)
+
 # network
+
 library(RColorBrewer)
 library(gridExtra)
 library(gtable)
@@ -11,9 +13,13 @@ library(treemap)
 library(igraph)
 library(stringdist)
 library(intergraph)
+
 # phylogram
+
 library(ape)
+
 #tsne
+
 library(stringdist)
 library(Rtsne)
 library(plotly)
@@ -22,14 +28,20 @@ library(reshape2)
 library(reshape)
 library(dendextend)
 library(data.tree)
+
 # heatmap + dendrgoram
+
 library(grid)
 library(gtable)
 library(ggdendro)
 library(missMDA)
+
 # intersects
+
 library(DescTools)
+
 # standard
+
 library(broom)
 library(divo)
 library(readxl)

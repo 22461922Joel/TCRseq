@@ -70,7 +70,8 @@ ggplot(RENCA_AB1_mds0_df, aes(V1, V2, colour = exp_num)) +
   geom_encircle(data = RENCA_AB1_mds0_df %>%
                   filter(exp_num == "JK4.1"), aes(V1, V2))
 
-PID_matrix_t_reduced <- PID_matrix_t[,colSums(!is.na(PID_matrix_t)) > 3]
+PID_matrix_t_reduced <- PID_matrix_t[,colSums(!is.na(PID_matrix_t)) > 3] %>%
+  as.data.frame()
 
 dg <- estim_ncpPCA(X = PID_matrix_t_reduced, ncp.min = 2)
 
