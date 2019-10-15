@@ -13,6 +13,7 @@ library(treemap)
 library(igraph)
 library(stringdist)
 library(intergraph)
+library(geomnet)
 
 # phylogram
 
@@ -221,16 +222,34 @@ summary_TCRseq <- function(data, location) {
     lambda
   }
   
+  DE50 <- function(df) {
+    
+    exp_group <- data %>%
+      group_by(exp) %>%
+      arrange(desc(PID.count)) %>%
+      group_split()
+    
+    DE50 <- list()
+    
+    for (j in 1:length(exp_group)) {
+      i = 1
+      while (sum(exp_group[[j]]$PID.count[1:i]) < sum(exp_group[[j]]$PID.count)/2) {
+        i = i + 1
+      }
+      DE50[[j]] <- i * 100 / nrow(exp_group[[j]])
+    }
+    DE50
+  }
+  
   
   exp_richness_summary <- data %>%
-    group_by(exp, aaSeqCDR3) %>%
-    summarise(PID.count = sum(PID.count), PID.fraction = sum(PID.fraction)) %>%
     group_by(exp) %>%
     summarise(richness = n(), 
               evenness = sum(PID.count), 
               average_count = evenness/richness,
               diversity = entropy(PID.fraction),
-              simpsons = simpsons_index(PID.fraction))
+              simpsons = simpsons_index(PID.fraction)) %>%
+    mutate(DE50 = unlist(DE50(data)))
   
   write_csv(exp_richness_summary, file.path(location, "summary_stats.csv"))
 }
@@ -246,8 +265,8 @@ summary_TCRseq <- function(data, location) {
 data_aa <- function(data) {
   data %>%
     dplyr::group_by(aaSeqCDR3, exp) %>%
-    dplyr::summarise(PID.count_sum = sum(PID.count),
-              PID.fraction_sum = sum(PID.fraction),
+    dplyr::summarise(PID.count = sum(PID.count),
+              PID.fraction = sum(PID.fraction),
               n_nuc = n_distinct(nSeqCDR3)) %>%
     as.data.frame()
 }
@@ -875,21 +894,7 @@ table(sent$timepoint, sent$response)
 #####
 # calculate DE50
 ######
-exp_group <- exp_clean_only_aa %>%
-  filter(timepoint == "0") %>%
-  group_split(tpmouse)
 
-names(exp_group) <- names_exp
-
-DE50 <- list()
-
-for (j in 1:length(exp_group)) {
-  i = 1
-  while (sum(exp_group[[j]]$PID.count[1:i]) < sum(exp_group[[j]]$PID.count)/2) {
-    i = i + 1
-  }
-  DE50[[j]] <- i * 100 / nrow(exp_group[[j]])
-}
 #####
 # t-SNE
 #####
